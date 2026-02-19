@@ -16,9 +16,9 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Root route - redirect to admin
+// Root route - main calculator page
 app.get('/', (req, res) => {
-  res.redirect('/admin.html');
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Widget test page
