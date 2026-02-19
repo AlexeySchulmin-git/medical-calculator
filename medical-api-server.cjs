@@ -5,6 +5,7 @@ const https = require('https');
 const { Resend } = require('resend');
 const { google } = require('googleapis');
 const fs = require('fs');
+const path = require('path');
 require('dotenv').config({ path: '.env.local' });
 
 const app = express();
@@ -13,11 +14,21 @@ const PORT = process.env.PORT || 3003;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Root route - redirect to admin
 app.get('/', (req, res) => {
   res.redirect('/admin.html');
+});
+
+// Widget test page
+app.get('/widget-test', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'test.html'));
+});
+
+// Widget JS
+app.get('/widget.js', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'widget-calculator.js'));
 });
 
 // PostgreSQL connection
