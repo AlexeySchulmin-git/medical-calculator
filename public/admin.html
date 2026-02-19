@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Медицинский калькулятор</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--bg:#0f172a;--surface:#1e293b;--surface2:#273549;--border:#334155;--accent:#3b82f6;--accent-h:#2563eb;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--text:#f1f5f9;--muted:#94a3b8;--r:10px}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+    #loginScreen{display:flex;align-items:center;justify-content:center;min-height:100vh}
+    .login-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;width:360px}
+    .login-card h1{font-size:22px;margin-bottom:6px}
+    .login-card p{color:var(--muted);font-size:14px;margin-bottom:28px}
+    .fg{margin-bottom:16px}
+    .fg label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
+    .fg input{width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s}
+    .fg input:focus{border-color:var(--accent)}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border-radius:8px;border:none;cursor:pointer;font-size:14px;font-weight:500;transition:background .2s}
+    .btn-p{background:var(--accent);color:#fff;width:100%;justify-content:center}
+    .btn-p:hover{background:var(--accent-h)}
+    .btn-sm{padding:5px 12px;font-size:12px}
+    .btn-g{background:transparent;border:1px solid var(--border);color:var(--muted)}
+    .btn-g:hover{border-color:var(--accent);color:var(--accent)}
+    #loginErr{color:var(--err);font-size:13px;margin-top:10px;display:none}
+    #app{display:none;min-height:100vh}
+    .sidebar{position:fixed;top:0;left:0;width:220px;height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:24px 0}
+    .s-logo{padding:0 20px 24px;font-size:15px;font-weight:700;border-bottom:1px solid var(--border);margin-bottom:12px}
+    .s-logo span{color:var(--accent)}
+    .nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;color:var(--muted);cursor:pointer;font-size:14px;transition:background .15s,color .15s;border-left:3px solid transparent}
+    .nav-item:hover{background:var(--surface2);color:var(--text)}
+    .nav-item.active{background:var(--surface2);color:var(--accent);border-left-color:var(--accent)}
+    .nav-item svg{width:16px;height:16px;flex-shrink:0}
+    .s-footer{margin-top:auto;padding:16px 20px;border-top:1px solid var(--border)}
+    .s-footer .ak{font-size:11px;color:var(--muted);word-break:break-all}
+    .main{margin-left:220px;padding:32px}
+    .page{display:none}
+    .page.active{display:block}
+    .ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+    .ph h2{font-size:22px;font-weight:700}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
+    .sc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px}
+    .sc .sl{font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
+    .sc .sv{font-size:28px;font-weight:700}
+    .c-new{color:var(--accent)}.c-prog{color:var(--warn)}.c-done{color:var(--ok)}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+    .ch{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+    .ch h3{font-size:15px;font-weight:600}
+    .filters{display:flex;gap:8px}
+    .fb{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;cursor:pointer;transition:all .15s}
+    .fb.active,.fb:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+    table{width:100%;border-collapse:collapse}
+    th{padding:12px 16px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+    td{padding:13px 16px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:top}
+    tr:last-child td{border-bottom:none}
+    tr:hover td{background:var(--surface2)}
+    .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
+    .badge-new{background:#1e3a5f;color:#93c5fd}
+    .badge-in_progress{background:#451a03;color:#fcd34d}
+    .badge-completed{background:#14532d;color:#86efac}
+    .badge-cancelled{background:#450a0a;color:#fca5a5}
+    .on{font-weight:600;color:var(--accent);font-size:12px}
+    .om{color:var(--muted);font-size:12px;margin-top:2px}
+    .pag{display:flex;align-items:center;gap:8px;padding:16px 20px;border-top:1px solid var(--border)}
+    .pag span{font-size:13px;color:var(--muted);margin:0 8px}
+    .pg{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    .pg2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+    .pc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px}
+    .pc label{display:block;font-size:12px;color:var(--muted);margin-bottom:8px}
+    .pc input{width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:18px;font-weight:700;outline:none;transition:border-color .2s}
+    .pc input:focus{border-color:var(--accent)}
+    .pc .unit{font-size:11px;color:var(--muted);margin-top:6px}
+    .pa{margin-top:20px;display:flex;gap:12px;align-items:center}
+    .btn-save{min-width:160px;max-width:220px}
+    #psm{font-size:13px;color:var(--ok);display:none}
+    .section{margin-bottom:0;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px}
+    .section-title{font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+    .section-title span{font-size:12px;color:var(--muted);font-weight:400}
+    .input-row{display:flex;gap:8px;align-items:flex-end}
+    .input-row .fg{flex:1;margin-bottom:0}
+    .fg-sm label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+    .fg-sm input,.fg-sm select{padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;width:100%}
+    .fg-sm input:focus,.fg-sm select:focus{border-color:var(--accent)}
+    .tier-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:8px;align-items:center;margin-bottom:8px}
+    .tier-row input{padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;width:100%}
+    .tier-row input:focus{border-color:var(--accent)}
+    .tier-row .tier-dir{font-size:11px;color:var(--muted);text-align:center;padding:8px 0}
+    .del-btn{background:#450a0a;border:none;color:#fca5a5;border-radius:6px;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+    .del-btn:hover{background:var(--err);color:#fff}
+    .city-row{display:grid;grid-template-columns:1fr 120px 100px 80px 1fr 40px;gap:8px;align-items:center;margin-bottom:8px}
+    .city-row input,.city-row select{padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;width:100%}
+    .city-row input:focus,.city-row select:focus{border-color:var(--accent)}
+    .col-header{font-size:11px;color:var(--muted);padding-bottom:4px}
+    .info-box{background:#1e3a5f;border:1px solid #2563eb;border-radius:8px;padding:12px 16px;font-size:13px;color:#93c5fd;margin-bottom:16px}
+    .mo{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:none;align-items:center;justify-content:center}
+    .mo.open{display:flex}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:560px;max-height:85vh;overflow-y:auto;padding:28px}
+    .mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+    .mh h3{font-size:17px;font-weight:700}
+    .mc{background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;line-height:1}
+    .mr{display:flex;gap:8px;margin-bottom:10px}
+    .ml{font-size:12px;color:var(--muted);width:140px;flex-shrink:0;padding-top:1px}
+    .mv{font-size:13px}
+    .md{border:none;border-top:1px solid var(--border);margin:16px 0}
+    .ss{padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;cursor:pointer}
+    .empty{padding:48px;text-align:center;color:var(--muted)}
+    .loader{padding:48px;text-align:center;color:var(--muted);font-size:13px}
+    #toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 18px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none}
+    #toast.show{opacity:1}
+    #toast.success{border-color:var(--ok);color:var(--ok)}
+    #toast.error{border-color:var(--err);color:var(--err)}
+  </style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <h1>🏥 Admin Panel</h1>
+    <p>Медицинский калькулятор</p>
+    <div class="fg"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="Введите API ключ" /></div>
+    <button class="btn btn-p" onclick="login()">Войти</button>
+    <div id="loginErr">Неверный API ключ</div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="sidebar">
+    <div class="s-logo">🏥 <span>Med</span>Admin</div>
+    <div class="nav-item active" onclick="showPage('orders')" id="nav-orders">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+      Заявки
+    </div>
+    <div class="nav-item" onclick="showPage('pricing')" id="nav-pricing">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      Цены
+    </div>
+    <div class="nav-item" onclick="showPage('integrations')" id="nav-integrations">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+      Интеграции
+    </div>
+    <div class="s-footer">
+      <div class="ak" id="akDisplay"></div>
+      <button class="btn btn-g btn-sm" style="margin-top:8px;width:100%" onclick="logout()">Выйти</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="page active" id="page-orders">
+      <div class="ph"><h2>Заявки</h2><button class="btn btn-g btn-sm" onclick="loadOrders()">↻ Обновить</button></div>
+      <div class="stats">
+        <div class="sc"><div class="sl">Всего</div><div class="sv" id="st-total">—</div></div>
+        <div class="sc"><div class="sl">Новые</div><div class="sv c-new" id="st-new">—</div></div>
+        <div class="sc"><div class="sl">В работе</div><div class="sv c-prog" id="st-prog">—</div></div>
+        <div class="sc"><div class="sl">Завершены</div><div class="sv c-done" id="st-done">—</div></div>
+      </div>
+      <div class="card">
+        <div class="ch">
+          <h3>Список заявок</h3>
+          <div class="filters">
+            <button class="fb active" onclick="filterOrders(null,this)">Все</button>
+            <button class="fb" onclick="filterOrders('new',this)">Новые</button>
+            <button class="fb" onclick="filterOrders('in_progress',this)">В работе</button>
+            <button class="fb" onclick="filterOrders('completed',this)">Завершены</button>
+            <button class="fb" onclick="filterOrders('cancelled',this)">Отменены</button>
+          </div>
+        </div>
+        <div id="ordersWrap"><div class="loader">Загрузка...</div></div>
+        <div class="pag" id="pag" style="display:none">
+          <button class="btn btn-g btn-sm" id="btnPrev" onclick="changePage(-1)">← Назад</button>
+          <span id="pageInfo"></span>
+          <button class="btn btn-g btn-sm" id="btnNext" onclick="changePage(1)">Вперёд →</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="page" id="page-pricing">
+      <div class="ph"><h2>Настройки цен</h2></div>
+
+      <!-- 1. Настройки компании -->
+      <div class="section">
+        <div class="section-title">🏢 Адрес базы <span>стартовая точка маршрута</span></div>
+        <div class="info-box">Маршрут рассчитывается как: База → Откуда → Куда → База. Укажите адрес и координаты вашей компании.</div>
+        <div class="pg2">
+          <div class="pc">
+            <label>Адрес базы</label>
+            <input type="text" id="c_base_address" placeholder="Раменское, Махова, 14" style="font-size:14px;font-weight:400">
+            <div class="unit">Текстовый адрес для отображения</div>
+          </div>
+          <div class="pc">
+            <label>Координаты базы (lat,lon)</label>
+            <input type="text" id="c_base_coords" placeholder="55.5667,38.2000" style="font-size:14px;font-weight:400">
+            <div class="unit">Широта,Долгота — для расчёта расстояния</div>
+          </div>
+          <div class="pc">
+            <label>Ссылка «Обработка персональных данных»</label>
+            <input type="text" id="c_policy_url" placeholder="https://example.com/privacy" style="font-size:14px;font-weight:400">
+            <div class="unit">URL страницы политики конфиденциальности</div>
+          </div>
+          <div class="pc">
+            <label>Ссылка «Пользовательское соглашение»</label>
+            <input type="text" id="c_agreement_url" placeholder="https://example.com/terms" style="font-size:14px;font-weight:400">
+            <div class="unit">URL страницы пользовательского соглашения</div>
+          </div>
+        </div>
+        <div class="pa"><button class="btn btn-p btn-sm btn-save" onclick="saveCompany()">Сохранить адрес</button><span id="csm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span></div>
+      </div>
+
+      <!-- 2. Базовые тарифы -->
+      <div class="section">
+        <div class="section-title">💰 Базовые тарифы</div>
+        <div class="pg">
+          <div class="pc"><label>Стоимость за км</label><input type="number" id="p_per_km" min="0"><div class="unit">₽/км</div></div>
+          <div class="pc"><label>Ожидание (за 30 мин)</label><input type="number" id="p_waiting_30min" min="0"><div class="unit">₽</div></div>
+          <div class="pc"><label>Кислород</label><input type="number" id="p_oxygen_fee" min="0"><div class="unit">₽</div></div>
+          <div class="pc"><label>Без сопровождения</label><input type="number" id="p_no_escort_fee" min="0"><div class="unit">₽</div></div>
+        </div>
+        <div class="section-title" style="margin-top:20px;font-size:14px">➕ Надбавка к итоговой стоимости <span>применяется после всех опций</span></div>
+        <div class="pg2">
+          <div class="pc">
+            <label>Фикс. надбавка (можно отрицательную)</label>
+            <input type="number" id="p_base_fixed_add" step="1">
+            <div class="unit">₽ — прибавляется/вычитается из итога. 0 = выключено</div>
+          </div>
+          <div class="pc">
+            <label>Коэффициент % (можно отрицательный)</label>
+            <input type="number" id="p_base_coeff" step="0.1">
+            <div class="unit">% к итогу. Напр.: 10 = +10%, -5 = скидка 5%. 0 = выключено</div>
+          </div>
+        </div>
+        <div class="pa"><button class="btn btn-p btn-sm btn-save" onclick="savePricing()">Сохранить тарифы</button><span id="psm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span></div>
+      </div>
+
+      <!-- 2b. Туда-обратно -->
+      <div class="section">
+        <div class="section-title">🔄 Туда-обратно</div>
+        <div class="info-box">Настройте как изменяется цена при выборе опции «туда и обратно». Можно прибавлять фикс. сумму или наценять на %. Отрицательное значение = скидка.</div>
+        <div class="pg2">
+          <div class="pc">
+            <label>Тип надбавки</label>
+            <select id="p_round_trip_type" onchange="updateRtHint()" style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none">
+              <option value="0">Коэффициент %</option>
+              <option value="1">Фиксированная сумма ₽</option>
+            </select>
+            <div class="unit">Выберите способ расчёта</div>
+          </div>
+          <div class="pc">
+            <label>Значение (можно отрицательное)</label>
+            <input type="number" id="p_round_trip_value" step="1">
+            <div class="unit" id="rt_unit">При коэфф.: 80 = +80% (итого ×1.8), -20 = скидка 20%</div>
+          </div>
+        </div>
+        <div class="pa"><button class="btn btn-p btn-sm btn-save" onclick="saveRoundTrip()">Сохранить туда-обратно</button><span id="rtsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span></div>
+      </div>
+
+      <!-- 3. Спуск без лифта -->
+      <div class="section">
+        <div class="section-title">⬇️ Спуск без лифта <span>тариф зависит от веса пациента</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:8px;margin-bottom:8px">
+          <div class="col-header">Вес от (кг)</div>
+          <div class="col-header">Вес до (кг)</div>
+          <div class="col-header">₽ за этаж</div>
+          <div class="col-header"></div>
+          <div></div>
+        </div>
+        <div id="descentTiers"></div>
+        <button class="btn btn-g btn-sm" onclick="addTierRow('descent')">+ Добавить диапазон</button>
+        <div class="pa"><button class="btn btn-p btn-sm btn-save" onclick="saveFloorTiers()">Сохранить тарифы этажей</button><span id="ftsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span></div>
+      </div>
+
+      <!-- 4. Подъём без лифта -->
+      <div class="section">
+        <div class="section-title">⬆️ Подъём без лифта <span>тариф зависит от веса пациента</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:8px;margin-bottom:8px">
+          <div class="col-header">Вес от (кг)</div>
+          <div class="col-header">Вес до (кг)</div>
+          <div class="col-header">₽ за этаж</div>
+          <div class="col-header"></div>
+          <div></div>
+        </div>
+        <div id="ascentTiers"></div>
+        <button class="btn btn-g btn-sm" onclick="addTierRow('ascent')">+ Добавить диапазон</button>
+      </div>
+
+      <!-- 5. Городские коэффициенты -->
+      <div class="section">
+        <div class="section-title">🏙️ Города: коэффициенты и фиксированные цены</div>
+        <div class="info-box">Фиксированная цена — заменяет расчёт по км для этого города. Процент — наценка к стоимости по км. Надбавка за км — добавляется к базовой ставке за км.</div>
+        <div style="display:grid;grid-template-columns:1fr 130px 100px 90px 1fr 40px;gap:8px;margin-bottom:8px">
+          <div class="col-header">Город</div>
+          <div class="col-header">Тип</div>
+          <div class="col-header">Значение</div>
+          <div class="col-header">Фикс. цена</div>
+          <div class="col-header">Примечание</div>
+          <div></div>
+        </div>
+        <div id="cityRatesWrap"></div>
+        <button class="btn btn-g btn-sm" onclick="addCityRow()">+ Добавить город</button>
+        <div class="pa"><button class="btn btn-p btn-sm btn-save" onclick="saveCityRates()">Сохранить города</button><span id="crsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span></div>
+      </div>
+
+      <!-- 6. Мед. сопровождение -->
+      <div class="section">
+        <div class="section-title">🩺 Мед. сопровождение</div>
+        <div class="info-box">При выборе мед. сопровождения в виджете будет показано сообщение: <em>«Стоимость зависит от диагноза и состояния пациента. Менеджер уточнит цену при подтверждении заявки.»</em></div>
+      </div>
+
+    </div>
+
+    <!-- Страница Интеграции -->
+    <div class="page" id="page-integrations">
+      <div class="ph"><h2>Интеграции</h2></div>
+
+      <!-- Telegram -->
+      <div class="section">
+        <div class="section-title">🤖 Telegram-уведомления</div>
+        <div class="info-box">
+          Получайте уведомления о новых заявках прямо в Telegram. Чтобы подключиться:
+          <ol style="margin:8px 0 0 16px;line-height:1.8">
+            <li>Откройте Telegram и найдите бота: <strong id="tgBotLink">@...загрузка...</strong></li>
+            <li>Отправьте боту команду: <code style="background:var(--bg);padding:2px 6px;border-radius:4px">/start <span id="tgApiKeyHint" style="color:var(--accent)">ВАШ_API_КЛЮЧ</span></code></li>
+            <li>Бот подтвердит подключение и уведомления начнут приходить автоматически</li>
+          </ol>
+        </div>
+        <div class="pg2" style="margin-top:16px">
+          <div class="pc">
+            <label>Статус Telegram</label>
+            <div id="tgStatus" style="font-size:14px;padding:10px 0;color:var(--muted)">Загрузка...</div>
+            <div class="unit">Подключается через бота или вводится вручную</div>
+          </div>
+          <div class="pc">
+            <label>Ваш Chat ID</label>
+            <input type="text" id="i_telegram_chat_id" placeholder="Например: 123456789" style="font-size:14px;font-weight:400">
+            <div class="unit">Узнать свой Chat ID: напишите боту <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent)">@userinfobot</a> — он ответит вашим ID</div>
+          </div>
+        </div>
+        <div class="pa">
+          <button class="btn btn-p btn-sm btn-save" onclick="saveTelegramChatId()">&#128190; Сохранить Chat ID</button>
+          <button class="btn btn-g btn-sm btn-save" onclick="testTelegram()">&#9993; Отправить тест</button>
+          <button class="btn btn-sm btn-save" onclick="disconnectTelegram()" style="background:transparent;border:1px solid var(--err);color:var(--err)">&#10005; Отключить</button>
+          <span id="tgsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span>
+        </div>
+      </div>
+
+      <!-- Google Sheets -->
+      <div class="section">
+        <div class="section-title">📊 Google Sheets</div>
+        <div class="info-box">
+          Каждая новая заявка автоматически записывается в вашу Google Таблицу. Чтобы подключиться:
+          <ol style="margin:8px 0 0 16px;line-height:1.8">
+            <li>Создайте новую Google Таблицу (или откройте существующую)</li>
+            <li>Нажмите «Поделиться» и добавьте редактора: <strong id="sheetsServiceEmail" style="color:var(--accent);font-size:12px">загрузка...</strong></li>
+            <li>Скопируйте ID таблицы из URL и вставьте ниже</li>
+          </ol>
+        </div>
+        <div class="pg2" style="margin-top:16px">
+          <div class="pc">
+            <label>ID Google Таблицы</label>
+            <input type="text" id="i_spreadsheet_id" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" style="font-size:13px;font-weight:400">
+            <div class="unit">Из URL: docs.google.com/spreadsheets/d/<strong>вот_это_ID</strong>/edit</div>
+          </div>
+          <div class="pc">
+            <label>Название листа</label>
+            <input type="text" id="i_sheet_name" placeholder="Заявки" value="Заявки" style="font-size:14px;font-weight:400">
+            <div class="unit">Название листа в таблице (по умолчанию: «Заявки»)</div>
+          </div>
+        </div>
+        <div class="pa">
+          <button class="btn btn-p btn-sm btn-save" onclick="saveSheets()">&#128190; Сохранить</button>
+          <button class="btn btn-g btn-sm btn-save" onclick="testSheets()">✓ Проверить запись</button>
+          <span id="shsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<div class="mo" id="orderModal" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="mh"><h3 id="modalTitle">Заявка</h3><button class="mc" onclick="document.getElementById('orderModal').classList.remove('open')">×</button></div>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = window.API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3003' : window.location.origin);
+let apiKey = sessionStorage.getItem('adminApiKey') || '', curPage = 1, curFilter = null;
+const PER_PAGE = 20;
+
+function showApp(key) {
+  apiKey = key;
+  sessionStorage.setItem('adminApiKey', key);
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('akDisplay').textContent = key.slice(0,8)+'...';
+  document.getElementById('tgApiKeyHint').textContent = key;
+  loadOrders(); loadAllPricing(); loadIntegrations();
+}
+
+function login() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  fetch(`${API}/api/orders?limit=1`, {headers:{'x-api-key':key}})
+    .then(r => { if(r.status===401) throw new Error(); return r.json(); })
+    .then(() => showApp(key))
+    .catch(() => { document.getElementById('loginErr').style.display = 'block'; });
+}
+document.getElementById('apiKeyInput').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
+
+// Восстанавливаем сессию при обновлении страницы
+if (apiKey) {
+  fetch(`${API}/api/orders?limit=1`, {headers:{'x-api-key':apiKey}})
+    .then(r => { if(r.status===401) throw new Error(); return r.json(); })
+    .then(() => showApp(apiKey))
+    .catch(() => { sessionStorage.removeItem('adminApiKey'); apiKey = ''; });
+}
+
+function logout() {
+  apiKey = '';
+  sessionStorage.removeItem('adminApiKey');
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('apiKeyInput').value = '';
+}
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.getElementById('nav-'+name).classList.add('active');
+}
+
+function loadOrders(page) {
+  if (page !== undefined) curPage = page;
+  document.getElementById('ordersWrap').innerHTML = '<div class="loader">Загрузка...</div>';
+  let url = `${API}/api/orders?page=${curPage}&limit=${PER_PAGE}`;
+  if (curFilter) url += `&status=${curFilter}`;
+  fetch(url, {headers:{'x-api-key':apiKey}})
+    .then(r => r.json())
+    .then(data => { renderTable(data.orders); renderPag(data.total); loadStats(); })
+    .catch(e => { document.getElementById('ordersWrap').innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`; });
+}
+
+function filterOrders(status, btn) {
+  curFilter = status; curPage = 1;
+  document.querySelectorAll('.fb').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  loadOrders();
+}
+
+function loadStats() {
+  const map = [[null,'st-total'],['new','st-new'],['in_progress','st-prog'],['completed','st-done']];
+  map.forEach(([s,id]) => {
+    fetch(`${API}/api/orders?limit=1`+(s?`&status=${s}`:''), {headers:{'x-api-key':apiKey}})
+      .then(r=>r.json()).then(d=>{ document.getElementById(id).textContent = d.total; });
+  });
+}
+
+function renderTable(orders) {
+  const wrap = document.getElementById('ordersWrap');
+  if (!orders || !orders.length) { wrap.innerHTML = '<div class="empty">Заявок нет</div>'; return; }
+  const rows = orders.map(o => `
+    <tr style="cursor:pointer" onclick='openOrder(${JSON.stringify(JSON.stringify(o))})'>
+      <td><div class="on">${o.order_number||'—'}</div><div class="om">${fmtDate(o.created_at)}</div></td>
+      <td><div style="font-weight:500">${o.phone}</div>${o.customer_email?`<div class="om">${o.customer_email}</div>`:''}</td>
+      <td><div>${trunc(o.from_address,28)}</div><div class="om">→ ${trunc(o.to_address,28)}</div></td>
+      <td>${o.distance?o.distance+' км':'—'}</td>
+      <td><strong>${o.price?Number(o.price).toLocaleString('ru-RU')+' ₽':'—'}</strong></td>
+      <td><span class="badge badge-${o.status}">${sLabel(o.status)}</span></td>
+    </tr>`).join('');
+  wrap.innerHTML = `<table><thead><tr><th>Заявка / Дата</th><th>Контакт</th><th>Маршрут</th><th>Км</th><th>Стоимость</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function renderPag(total) {
+  const pages = Math.ceil(total / PER_PAGE);
+  const pag = document.getElementById('pag');
+  if (pages <= 1) { pag.style.display='none'; return; }
+  pag.style.display = 'flex';
+  document.getElementById('pageInfo').textContent = `Стр. ${curPage} из ${pages} (${total})`;
+  document.getElementById('btnPrev').disabled = curPage <= 1;
+  document.getElementById('btnNext').disabled = curPage >= pages;
+}
+
+function changePage(d) { curPage += d; loadOrders(); }
+
+function openOrder(jsonStr) {
+  const o = JSON.parse(jsonStr);
+  document.getElementById('modalTitle').textContent = `Заявка ${o.order_number||'#'+o.id}`;
+  const r = (l,v) => v ? `<div class="mr"><span class="ml">${l}</span><span class="mv">${v}</span></div>` : '';
+  document.getElementById('modalBody').innerHTML = `
+    <div class="mr"><span class="ml">Статус</span>
+      <select class="ss" onchange="updateStatus(${o.id},this.value)">
+        <option value="new" ${o.status==='new'?'selected':''}>🔵 Новая</option>
+        <option value="in_progress" ${o.status==='in_progress'?'selected':''}>🟡 В работе</option>
+        <option value="completed" ${o.status==='completed'?'selected':''}>🟢 Завершена</option>
+        <option value="cancelled" ${o.status==='cancelled'?'selected':''}>🔴 Отменена</option>
+      </select>
+    </div>
+    <hr class="md">
+    ${r('Телефон',o.phone)}${r('Email',o.customer_email)}${r('Имя',o.customer_name)}
+    <hr class="md">
+    ${r('Откуда',o.from_address)}${r('Куда',o.to_address)}${r('Расстояние',o.distance?o.distance+' км':null)}
+    <hr class="md">
+    ${r('Стоимость',o.price?Number(o.price).toLocaleString('ru-RU')+' ₽':null)}
+    ${r('Вес',o.weight?o.weight+' кг':null)}${r('Диагноз',o.diagnosis)}
+    ${o.floor_num>1?r('Этаж',o.floor_num+(o.no_elevator?' (без лифта)':'')):'' }
+    ${o.medical_escort?r('Мед. сопровождение','✓'):''}${o.round_trip?r('Туда-обратно','✓'):''}
+    ${r('Оплата',o.payment_method)}${r('Комментарий',o.comment)}
+    <hr class="md">
+    ${r('Дата заявки',fmtDate(o.created_at))}
+  `;
+  document.getElementById('orderModal').classList.add('open');
+}
+
+function closeModal(e) { if(e.target.id==='orderModal') document.getElementById('orderModal').classList.remove('open'); }
+
+function updateStatus(id, status) {
+  fetch(`${API}/api/orders/${id}`, {
+    method:'PATCH', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify({status})
+  }).then(()=>{ showToast('Статус обновлён','success'); loadOrders(); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+// ── PRICING: LOAD ALL ─────────────────────────────────
+function loadAllPricing() {
+  const h = {'x-api-key': apiKey};
+  Promise.all([
+    fetch(`${API}/api/pricing`, {headers:h}).then(r=>r.json()),
+    fetch(`${API}/api/company`, {headers:h}).then(r=>r.json()),
+    fetch(`${API}/api/pricing/floor-tiers`, {headers:h}).then(r=>r.json()),
+    fetch(`${API}/api/pricing/city-rates`, {headers:h}).then(r=>r.json()),
+  ]).then(([pricing, company, tiers, cities]) => {
+    const c = pricing.cache || {};
+    ['per_km','base_fixed_add','base_coeff','waiting_30min','oxygen_fee','no_escort_fee'].forEach(k => {
+      const el = document.getElementById('p_'+k);
+      if (el) el.value = c[k] !== undefined ? c[k] : 0;
+    });
+    const rtTypeEl = document.getElementById('p_round_trip_type');
+    const rtValEl  = document.getElementById('p_round_trip_value');
+    if (rtTypeEl) rtTypeEl.value = c.round_trip_type !== undefined ? c.round_trip_type : 0;
+    if (rtValEl)  rtValEl.value  = c.round_trip_value !== undefined ? c.round_trip_value : 80;
+    updateRtHint();
+    const s = company.settings || {};
+    document.getElementById('c_base_address').value  = s.base_address  || '';
+    document.getElementById('c_base_coords').value   = s.base_coords   || '';
+    document.getElementById('c_policy_url').value    = s.policy_url    || '';
+    document.getElementById('c_agreement_url').value = s.agreement_url || '';
+    renderTiers('descent', (tiers.tiers && tiers.tiers.descent) || []);
+    renderTiers('ascent',  (tiers.tiers && tiers.tiers.ascent)  || []);
+    renderCityRates(cities.rates || []);
+  }).catch(()=>{});
+}
+
+// ── COMPANY ───────────────────────────────────────────
+function saveCompany() {
+  const body = {
+    base_address:  document.getElementById('c_base_address').value,
+    base_coords:   document.getElementById('c_base_coords').value,
+    policy_url:    document.getElementById('c_policy_url').value,
+    agreement_url: document.getElementById('c_agreement_url').value,
+  };
+  fetch(`${API}/api/company`, {
+    method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(()=>{ flashMsg('csm'); showToast('Адрес сохранён','success'); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+// ── BASE PRICING ──────────────────────────────────────
+function savePricing() {
+  const keys = ['per_km','base_fixed_add','base_coeff','waiting_30min','oxygen_fee','no_escort_fee'];
+  const updates = {};
+  keys.forEach(k => {
+    const el = document.getElementById('p_'+k);
+    if (el) updates[k] = parseFloat(el.value)||0;
+  });
+  fetch(`${API}/api/pricing`, {
+    method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify(updates)
+  }).then(()=>{ flashMsg('psm'); showToast('Тарифы сохранены','success'); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+function saveRoundTrip() {
+  const rtType = document.getElementById('p_round_trip_type')?.value || '0';
+  const rtVal  = document.getElementById('p_round_trip_value')?.value || '80';
+  fetch(`${API}/api/pricing`, {
+    method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify({ round_trip_type: parseFloat(rtType), round_trip_value: parseFloat(rtVal) })
+  }).then(()=>{ flashMsg('rtsm'); showToast('Туда-обратно сохранено','success'); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+function updateRtHint() {
+  const type = document.getElementById('p_round_trip_type')?.value;
+  const hint = document.getElementById('rt_unit');
+  if (!hint) return;
+  hint.textContent = type === '1'
+    ? '₽ — прибавляется/вычитается из цены. Напр.: 500 = +500₽, -200 = скидка 200₽'
+    : 'При коэфф.: 80 = +80% (цена ×1.8), -20 = скидка 20%';
+}
+
+// ── FLOOR TIERS ───────────────────────────────────────
+function renderTiers(dir, tiers) {
+  const wrap = document.getElementById(dir+'Tiers');
+  if (!wrap) return;
+  wrap.innerHTML = tiers.map((t,i) => tierRow(dir, i, t)).join('');
+}
+
+function tierRow(dir, i, t) {
+  return `<div class="tier-row" id="tier_${dir}_${i}">
+    <input type="number" placeholder="от" value="${t.weight_from||0}" min="0" id="tf_${dir}_${i}_from">
+    <input type="number" placeholder="до (пусто=∞)" value="${t.weight_to!=null&&t.weight_to!==undefined?t.weight_to:''}" min="0" id="tf_${dir}_${i}_to">
+    <input type="number" placeholder="₽/этаж" value="${t.price_per_floor||0}" min="0" id="tf_${dir}_${i}_price">
+    <div></div>
+    <button class="del-btn" onclick="removeTierRow('${dir}',${i})">×</button>
+  </div>`;
+}
+
+function addTierRow(dir) {
+  const wrap = document.getElementById(dir+'Tiers');
+  const i = wrap.querySelectorAll('.tier-row').length;
+  const div = document.createElement('div');
+  div.innerHTML = tierRow(dir, i, {weight_from:0,weight_to:'',price_per_floor:0});
+  wrap.appendChild(div.firstElementChild);
+}
+
+function removeTierRow(dir, i) {
+  const el = document.getElementById(`tier_${dir}_${i}`);
+  if (el) el.remove();
+}
+
+function collectTiers(dir) {
+  const wrap = document.getElementById(dir+'Tiers');
+  const result = [];
+  wrap.querySelectorAll('.tier-row').forEach(row => {
+    const id = row.id.replace('tier_'+dir+'_','');
+    const from  = parseInt(document.getElementById(`tf_${dir}_${id}_from`)?.value)||0;
+    const toVal = document.getElementById(`tf_${dir}_${id}_to`)?.value;
+    const price = parseFloat(document.getElementById(`tf_${dir}_${id}_price`)?.value)||0;
+    result.push({direction:dir, weight_from:from, weight_to:toVal===''?null:parseInt(toVal), price_per_floor:price});
+  });
+  return result;
+}
+
+function saveFloorTiers() {
+  const tiers = [...collectTiers('descent'), ...collectTiers('ascent')];
+  fetch(`${API}/api/pricing/floor-tiers`, {
+    method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify({tiers})
+  }).then(r=>r.json())
+    .then(data => {
+      renderTiers('descent', (data.tiers&&data.tiers.descent)||[]);
+      renderTiers('ascent',  (data.tiers&&data.tiers.ascent)||[]);
+      flashMsg('ftsm'); showToast('Тарифы этажей сохранены','success');
+    })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+// ── CITY RATES ────────────────────────────────────────
+function renderCityRates(rates) {
+  const wrap = document.getElementById('cityRatesWrap');
+  if (!wrap) return;
+  wrap.innerHTML = rates.map((r,i) => cityRow(i, r)).join('');
+}
+
+function cityRow(i, r) {
+  const sel = ['percent','flat_km','fixed'].map(t =>
+    `<option value="${t}" ${r.rate_type===t?'selected':''}>${{percent:'% наценка',flat_km:'надбавка/км',fixed:'фикс. цена'}[t]}</option>`
+  ).join('');
+  return `<div class="city-row" id="cr_${i}">
+    <input type="text" placeholder="Москва" value="${r.city_name||''}" id="cr_${i}_city">
+    <select id="cr_${i}_type">${sel}</select>
+    <input type="number" placeholder="0" value="${r.value||0}" min="0" id="cr_${i}_val">
+    <select id="cr_${i}_fixed">
+      <option value="0" ${!r.is_fixed_price?'selected':''}>Нет</option>
+      <option value="1" ${r.is_fixed_price?'selected':''}>Да</option>
+    </select>
+    <input type="text" placeholder="Примечание" value="${r.note||''}" id="cr_${i}_note">
+    <button class="del-btn" onclick="removeCityRow(${i})">×</button>
+  </div>`;
+}
+
+function addCityRow() {
+  const wrap = document.getElementById('cityRatesWrap');
+  const i = wrap.querySelectorAll('.city-row').length;
+  const div = document.createElement('div');
+  div.innerHTML = cityRow(i, {city_name:'',rate_type:'percent',value:0,is_fixed_price:0,note:''});
+  wrap.appendChild(div.firstElementChild);
+}
+
+function removeCityRow(i) {
+  const el = document.getElementById('cr_'+i);
+  if (el) el.remove();
+}
+
+function saveCityRates() {
+  const wrap = document.getElementById('cityRatesWrap');
+  const newRates = [];
+  wrap.querySelectorAll('.city-row').forEach(row => {
+    const i = row.id.replace('cr_','');
+    const city = document.getElementById(`cr_${i}_city`)?.value||'';
+    if (!city) return;
+    newRates.push({
+      city_name:      city,
+      rate_type:      document.getElementById(`cr_${i}_type`)?.value||'percent',
+      value:          parseFloat(document.getElementById(`cr_${i}_val`)?.value)||0,
+      is_fixed_price: document.getElementById(`cr_${i}_fixed`)?.value==='1',
+      note:           document.getElementById(`cr_${i}_note`)?.value||'',
+    });
+  });
+  // Удаляем старые, добавляем новые
+  fetch(`${API}/api/pricing/city-rates`)
+    .then(r=>r.json())
+    .then(async data => {
+      for (const r of (data.rates||[])) {
+        await fetch(`${API}/api/pricing/city-rates/${r.id}`,{method:'DELETE',headers:{'x-api-key':apiKey}});
+      }
+      for (const r of newRates) {
+        await fetch(`${API}/api/pricing/city-rates`,{
+          method:'POST', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+          body: JSON.stringify(r)
+        });
+      }
+      return fetch(`${API}/api/pricing/city-rates`).then(r=>r.json());
+    })
+    .then(d => { renderCityRates(d.rates||[]); flashMsg('crsm'); showToast('Города сохранены','success'); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+function fmtDate(d) {
+  if (!d) return '—';
+  return new Date(d).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+function trunc(s,n) { if(!s) return '—'; return s.length>n ? s.slice(0,n)+'…' : s; }
+function sLabel(s) { return {new:'Новая',in_progress:'В работе',completed:'Завершена',cancelled:'Отменена'}[s]||s; }
+function showToast(msg, type) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'show '+(type||'');
+  setTimeout(()=>t.className='', 2500);
+}
+function flashMsg(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.style.display = 'inline';
+  setTimeout(()=>el.style.display='none', 2500);
+}
+
+// ── INTEGRATIONS ──────────────────────────────────────
+function loadIntegrations() {
+  fetch(`${API}/api/integrations`, {headers:{'x-api-key':apiKey}})
+    .then(r=>r.json())
+    .then(data => {
+      const tgChatId = data.telegram_chat_id || '';
+      const spreadId = data.google_spreadsheet_id || '';
+      document.getElementById('i_telegram_chat_id').value = tgChatId;
+      document.getElementById('i_spreadsheet_id').value   = spreadId;
+      const tgStatus = document.getElementById('tgStatus');
+      tgStatus.textContent = tgChatId
+        ? `✅ Подключено (Chat ID: ${tgChatId})`
+        : '⚪ Не подключено';
+      tgStatus.style.color = tgChatId ? 'var(--ok)' : 'var(--muted)';
+      if (data.sheets_service_email) {
+        document.getElementById('sheetsServiceEmail').textContent = data.sheets_service_email;
+      }
+      if (data.bot_username) {
+        document.getElementById('tgBotLink').textContent = '@' + data.bot_username;
+      }
+    }).catch(()=>{});
+}
+
+function saveSheets() {
+  const spreadsheetId = document.getElementById('i_spreadsheet_id').value.trim();
+  fetch(`${API}/api/integrations`, {
+    method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify({ google_spreadsheet_id: spreadsheetId })
+  }).then(()=>{ flashMsg('shsm'); showToast('Google Sheets сохранён','success'); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+function testTelegram() {
+  fetch(`${API}/api/telegram/test-client`, {headers:{'x-api-key':apiKey}})
+    .then(r=>r.json())
+    .then(d => {
+      if (d.success) showToast('Тест отправлен в Telegram ✅','success');
+      else showToast('Ошибка: ' + (d.error||'нет chat_id'),'error');
+    }).catch(()=>showToast('Ошибка','error'));
+}
+
+function testSheets() {
+  fetch(`${API}/api/sheets/test-client`, {headers:{'x-api-key':apiKey}})
+    .then(r=>r.json())
+    .then(d => {
+      if (d.success) showToast('Тестовая строка добавлена ✅','success');
+      else showToast('Ошибка: ' + (d.error||'нет spreadsheet_id'),'error');
+    }).catch(()=>showToast('Ошибка','error'));
+}
+
+function saveTelegramChatId() {
+  const chatId = document.getElementById('i_telegram_chat_id').value.trim();
+  if (!chatId) { showToast('Введите Chat ID','error'); return; }
+  fetch(`${API}/api/integrations`, {
+    method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify({ telegram_chat_id: chatId })
+  }).then(()=>{ flashMsg('tgsm'); loadIntegrations(); showToast('Chat ID сохранён ✅','success'); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+
+function disconnectTelegram() {
+  if (!confirm('Отключить Telegram-уведомления?')) return;
+  fetch(`${API}/api/integrations`, {
+    method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify({ telegram_chat_id: null })
+  }).then(()=>{ loadIntegrations(); showToast('Telegram отключён','success'); })
+    .catch(()=>showToast('Ошибка','error'));
+}
+</script>
+</body>
+</html>

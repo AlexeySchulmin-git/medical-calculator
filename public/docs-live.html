@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📚 Beads Документация (Real-time)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8fafc;
+            color: #334155;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        .header h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 1rem;
+        }
+
+        .live-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: #10b981;
+            color: white;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+        }
+
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 3rem;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 2rem;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            transition: transform 0.2s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            transition: color 0.3s;
+        }
+
+        .stat-label {
+            color: #64748b;
+            font-weight: 500;
+        }
+
+        .timeline {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .timeline h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #1e293b;
+        }
+
+        .bead-item {
+            border-left: 4px solid #e2e8f0;
+            padding-left: 2rem;
+            padding-bottom: 2rem;
+            position: relative;
+            opacity: 0;
+            animation: fadeInUp 0.5s forwards;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .bead-item::before {
+            content: '';
+            position: absolute;
+            left: -10px;
+            top: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #cbd5e1;
+            border: 4px solid white;
+            transition: background 0.3s;
+        }
+
+        .bead-item.completed::before {
+            background: #10b981;
+        }
+
+        .bead-item.in-progress::before {
+            background: #f59e0b;
+        }
+
+        .bead-item.blocked::before {
+            background: #ef4444;
+        }
+
+        .bead-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .bead-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .bead-meta {
+            display: flex;
+            gap: 1rem;
+            font-size: 0.875rem;
+            color: #64748b;
+        }
+
+        .bead-status {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+            transition: all 0.3s;
+        }
+
+        .bead-status.completed {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .bead-status.in-progress {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .bead-status.blocked {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .bead-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .tag {
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            transition: transform 0.2s;
+        }
+
+        .tag:hover {
+            transform: scale(1.05);
+        }
+
+        .bead-content {
+            color: #475569;
+            margin-bottom: 1rem;
+        }
+
+        .bead-content h3 {
+            color: #1e293b;
+            margin: 1rem 0 0.5rem 0;
+        }
+
+        .bead-content ul {
+            margin-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .bead-content code {
+            background: #f1f5f9;
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+
+        .controls {
+            background: white;
+            border-radius: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 2rem;
+            margin-bottom: 3rem;
+        }
+
+        .controls h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: #1e293b;
+        }
+
+        .control-group {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .search-input {
+            flex: 1;
+            min-width: 300px;
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .filter-select {
+            padding: 0.75rem 1rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            background: white;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+
+        .filter-select:focus {
+            outline: none;
+            border-color: #3b82f6;
+        }
+
+        .refresh-btn {
+            padding: 0.75rem 1.5rem;
+            background: #3b82f6;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .refresh-btn:hover {
+            background: #2563eb;
+        }
+
+        .refresh-btn:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .connection-status {
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 1rem;
+        }
+
+        .connection-status.connected {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .connection-status.disconnected {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 1rem 1.5rem;
+            background: #10b981;
+            color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transform: translateX(400px);
+            transition: transform 0.3s;
+            z-index: 1000;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+
+            .bead-header {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .bead-meta {
+                flex-direction: column;
+                gap: 0.25rem;
+            }
+
+            .control-group {
+                flex-direction: column;
+            }
+
+            .search-input {
+                min-width: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="live-indicator">
+                <div class="live-dot"></div>
+                <span>Real-time Updates</span>
+            </div>
+            <h1>📚 Beads Документация</h1>
+            <p>История разработки с реальным обновлением через WebSocket</p>
+        </header>
+
+        <section class="controls">
+            <h2>Управление</h2>
+            <div class="connection-status" id="connectionStatus">
+                🔌 Подключение к WebSocket...
+            </div>
+            <div class="control-group">
+                <input type="text" class="search-input" id="searchInput" placeholder="Поиск по названию или тегам...">
+                <select class="filter-select" id="statusFilter">
+                    <option value="all">Все статусы</option>
+                    <option value="completed">Выполнено</option>
+                    <option value="in-progress">В процессе</option>
+                    <option value="blocked">Заблокировано</option>
+                </select>
+                <button class="refresh-btn" id="refreshBtn">🔄 Обновить</button>
+            </div>
+        </section>
+
+        <section class="stats" id="stats">
+            <!-- Статистика будет загружена через API -->
+        </section>
+
+        <section class="timeline">
+            <h2>Timeline проекта</h2>
+            <div id="beadsList">
+                <!-- Beads будут загружены через API -->
+            </div>
+        </section>
+    </div>
+
+    <div class="notification" id="notification"></div>
+
+    <script>
+        // Beads Real-time Application
+        class BeadsApp {
+            constructor() {
+                this.apiUrl = 'http://localhost:3003/api/beads';
+                this.wsUrl = 'ws://localhost:3005';
+                this.beads = [];
+                this.filteredBeads = [];
+                this.ws = null;
+                this.reconnectAttempts = 0;
+                this.maxReconnectAttempts = 5;
+                
+                this.init();
+            }
+
+            async init() {
+                await this.loadBeads();
+                this.setupWebSocket();
+                this.setupEventListeners();
+                this.render();
+            }
+
+            async loadBeads() {
+                try {
+                    const response = await fetch(this.apiUrl);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        this.beads = data.beads;
+                        this.filteredBeads = [...this.beads];
+                        this.updateStats(data.index);
+                        this.showNotification('📚 Beads загружены успешно');
+                    } else {
+                        throw new Error(data.error);
+                    }
+                } catch (error) {
+                    console.error('Error loading beads:', error);
+                    this.showNotification('❌ Ошибка загрузки beads', 'error');
+                }
+            }
+
+            setupWebSocket() {
+                try {
+                    this.ws = new WebSocket(this.wsUrl);
+                    
+                    this.ws.onopen = () => {
+                        console.log('WebSocket connected');
+                        this.updateConnectionStatus(true);
+                        this.reconnectAttempts = 0;
+                        
+                        // Подписываемся на обновления
+                        this.ws.send(JSON.stringify({ type: 'subscribe' }));
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        const data = JSON.parse(event.data);
+                        this.handleWebSocketMessage(data);
+                    };
+
+                    this.ws.onclose = () => {
+                        console.log('WebSocket disconnected');
+                        this.updateConnectionStatus(false);
+                        this.attemptReconnect();
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.updateConnectionStatus(false);
+                    };
+                } catch (error) {
+                    console.error('Error setting up WebSocket:', error);
+                    this.updateConnectionStatus(false);
+                }
+            }
+
+            handleWebSocketMessage(data) {
+                console.log('WebSocket message:', data);
+                
+                switch (data.type) {
+                    case 'initial':
+                        this.beads = data.data;
+                        this.filteredBeads = [...this.beads];
+                        this.render();
+                        this.showNotification('🔄 Данные обновлены через WebSocket');
+                        break;
+                    
+                    case 'bead-updated':
+                        this.showNotification(`📝 Bead обновлён: ${data.data.filename}`);
+                        this.loadBeads(); // Перезагружаем все beads
+                        break;
+                }
+            }
+
+            attemptReconnect() {
+                if (this.reconnectAttempts < this.maxReconnectAttempts) {
+                    this.reconnectAttempts++;
+                    console.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+                    
+                    setTimeout(() => {
+                        this.setupWebSocket();
+                    }, 1000 * this.reconnectAttempts);
+                } else {
+                    this.showNotification('❌ Не удалось подключиться к WebSocket', 'error');
+                }
+            }
+
+            updateConnectionStatus(connected) {
+                const statusEl = document.getElementById('connectionStatus');
+                if (connected) {
+                    statusEl.className = 'connection-status connected';
+                    statusEl.textContent = '🟢 Подключено к WebSocket';
+                } else {
+                    statusEl.className = 'connection-status disconnected';
+                    statusEl.textContent = '🔌 Отключено от WebSocket';
+                }
+            }
+
+            setupEventListeners() {
+                // Поиск
+                document.getElementById('searchInput').addEventListener('input', (e) => {
+                    this.filterBeads();
+                });
+
+                // Фильтр статуса
+                document.getElementById('statusFilter').addEventListener('change', (e) => {
+                    this.filterBeads();
+                });
+
+                // Кнопка обновления
+                document.getElementById('refreshBtn').addEventListener('click', () => {
+                    this.refreshBeads();
+                });
+            }
+
+            filterBeads() {
+                const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+                const statusFilter = document.getElementById('statusFilter').value;
+
+                this.filteredBeads = this.beads.filter(bead => {
+                    const matchesSearch = bead.metadata.title.toLowerCase().includes(searchTerm) ||
+                                         (bead.metadata.tags || []).some(tag => tag.toLowerCase().includes(searchTerm));
+                    
+                    const matchesStatus = statusFilter === 'all' || bead.metadata.status === statusFilter;
+                    
+                    return matchesSearch && matchesStatus;
+                });
+
+                this.render();
+            }
+
+            async refreshBeads() {
+                const btn = document.getElementById('refreshBtn');
+                btn.disabled = true;
+                btn.textContent = '⏳ Загрузка...';
+
+                await this.loadBeads();
+                this.render();
+
+                btn.disabled = false;
+                btn.textContent = '🔄 Обновить';
+            }
+
+            updateStats(index) {
+                const statsContainer = document.getElementById('stats');
+                
+                statsContainer.innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-number" style="color: #3b82f6;">${index.total}</div>
+                        <div class="stat-label">Всего записей</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" style="color: #10b981;">${index.byStatus.completed || 0}</div>
+                        <div class="stat-label">Выполнено</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" style="color: #f59e0b;">${index.byStatus['in-progress'] || 0}</div>
+                        <div class="stat-label">В процессе</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" style="color: #ef4444;">${index.byStatus.blocked || 0}</div>
+                        <div class="stat-label">Заблокировано</div>
+                    </div>
+                `;
+            }
+
+            render() {
+                const beadsContainer = document.getElementById('beadsList');
+                
+                if (this.filteredBeads.length === 0) {
+                    beadsContainer.innerHTML = `
+                        <div style="text-align: center; padding: 3rem; color: #64748b;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">🔍</div>
+                            <h3>Ничего не найдено</h3>
+                            <p>Попробуйте изменить критерии поиска</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                beadsContainer.innerHTML = this.filteredBeads.map((bead, index) => `
+                    <div class="bead-item ${bead.metadata.status}" style="animation-delay: ${index * 0.1}s">
+                        <div class="bead-header">
+                            <div class="bead-title">${bead.metadata.title}</div>
+                            <div class="bead-meta">
+                                <span>${bead.metadata.date}</span>
+                                <span>•</span>
+                                <span>${bead.metadata.author}</span>
+                            </div>
+                        </div>
+                        <div class="bead-status ${bead.metadata.status}">
+                            ${this.getStatusText(bead.metadata.status)}
+                        </div>
+                        ${bead.metadata.tags && bead.metadata.tags.length > 0 ? `
+                            <div class="bead-tags">
+                                ${bead.metadata.tags.map(tag => `<span class="tag">${tag}</span>`).join('')}
+                            </div>
+                        ` : ''}
+                        <div class="bead-content">
+                            ${this.markdownToHtml(bead.body.substring(0, 500) + '...')}
+                        </div>
+                        <div style="text-sm text-gray-500 mt-2">
+                            ID: ${bead.id} • Последнее изменение: ${new Date(bead.lastModified).toLocaleString('ru-RU')}
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            getStatusText(status) {
+                switch (status) {
+                    case 'completed': return 'Выполнено';
+                    case 'in-progress': return 'В процессе';
+                    case 'blocked': return 'Заблокировано';
+                    default: return 'Неизвестно';
+                }
+            }
+
+            markdownToHtml(markdown) {
+                return markdown
+                    .replace(/^# (.*$)/gim, '<h3>$1</h3>')
+                    .replace(/^## (.*$)/gim, '<h4>$1</h4>')
+                    .replace(/\*\*(.*)\*\*/gim, '<strong>$1</strong>')
+                    .replace(/\*(.*)\*/gim, '<em>$1</em>')
+                    .replace(/`(.*)`/gim, '<code>$1</code>')
+                    .replace(/\[(.*)\]\((.*)\)/gim, '<a href="$2">$1</a>')
+                    .replace(/^- (.*)$/gim, '<li>$1</li>')
+                    .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+                    .replace(/\n\n/gim, '</p><p>')
+                    .replace(/^/, '<p>')
+                    .replace(/$/, '</p>');
+            }
+
+            showNotification(message, type = 'success') {
+                const notification = document.getElementById('notification');
+                notification.textContent = message;
+                notification.style.background = type === 'error' ? '#ef4444' : '#10b981';
+                notification.classList.add('show');
+
+                setTimeout(() => {
+                    notification.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        // Запускаем приложение
+        document.addEventListener('DOMContentLoaded', () => {
+            new BeadsApp();
+        });
+    </script>
+</body>
+</html>

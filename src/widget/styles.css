@@ -1,0 +1,233 @@
+/* Стили для виджета medical калькулятора */
+
+.wdg-calculator {
+  background: var(--wdg-bg, #ffffff);
+  border: 1px solid var(--wdg-border, #d1d5db);
+  border-radius: var(--wdg-radius, 8px);
+  padding: 20px;
+  max-width: 500px;
+  margin: 20px auto;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.wdg-title {
+  font-size: 1.25em;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: var(--wdg-text, #374151);
+}
+
+.wdg-form-group {
+  margin-bottom: 16px;
+}
+
+.wdg-label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  color: var(--wdg-text, #374151);
+}
+
+.wdg-input,
+.wdg-select,
+.wdg-textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--wdg-border, #d1d5db);
+  border-radius: var(--wdg-radius, 8px);
+  font-size: var(--wdg-font-size, 16px);
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.wdg-input:focus,
+.wdg-select:focus,
+.wdg-textarea:focus {
+  outline: none;
+  border-color: var(--wdg-primary, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.wdg-checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wdg-checkbox {
+  width: auto;
+  margin: 0;
+}
+
+.wdg-autocomplete {
+  position: relative;
+}
+
+.wdg-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--wdg-bg, #ffffff);
+  border: 1px solid var(--wdg-border, #d1d5db);
+  border-top: none;
+  border-radius: 0 0 var(--wdg-radius, 8px) var(--wdg-radius, 8px);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 1000;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.wdg-suggestion {
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-bottom: 1px solid var(--wdg-border, #d1d5db);
+}
+
+.wdg-suggestion:last-child {
+  border-bottom: none;
+}
+
+.wdg-suggestion:hover,
+.wdg-suggestion.selected {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.wdg-result {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: var(--wdg-radius, 8px);
+  padding: 16px;
+  margin: 20px 0;
+  text-align: center;
+}
+
+.wdg-price {
+  font-size: 1.5em;
+  font-weight: 600;
+  color: var(--wdg-success, #10b981);
+  margin-bottom: 8px;
+}
+
+.wdg-distance {
+  color: var(--wdg-text, #374151);
+  font-size: 0.9em;
+}
+
+.wdg-button {
+  background: var(--wdg-primary, #3b82f6);
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: var(--wdg-radius, 8px);
+  font-size: var(--wdg-font-size, 16px);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  width: 100%;
+}
+
+.wdg-button:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.wdg-button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+.wdg-error {
+  color: var(--wdg-error, #ef4444);
+  font-size: 0.875em;
+  margin-top: 4px;
+}
+
+.wdg-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--wdg-text, #374151);
+}
+
+.wdg-success {
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: var(--wdg-success, #10b981);
+  padding: 16px;
+  border-radius: var(--wdg-radius, 8px);
+  text-align: center;
+}
+
+.wdg-help-text {
+  font-size: 0.875em;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.wdg-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.wdg-field-half {
+  width: 100%;
+}
+
+/* Бонусы */
+.wdg-bonus-info {
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: var(--wdg-radius, 8px);
+  padding: 12px;
+  margin: 12px 0;
+  font-size: 0.9em;
+}
+
+.wdg-bonus-amount {
+  font-weight: 600;
+  color: var(--wdg-warning, #f59e0b);
+}
+
+/* Адаптивность */
+@media (max-width: 640px) {
+  .wdg-calculator {
+    margin: 10px;
+    padding: 16px;
+  }
+  
+  .wdg-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+}
+
+/* Анимации */
+@keyframes wdg-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.wdg-loading::after {
+  content: '';
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--wdg-border, #d1d5db);
+  border-top: 2px solid var(--wdg-primary, #3b82f6);
+  border-radius: 50%;
+  animation: wdg-spin 1s linear infinite;
+  margin-left: 8px;
+}
+
+/* Фокусировка доступности */
+.wdg-input:focus,
+.wdg-select:focus,
+.wdg-textarea:focus,
+.wdg-button:focus {
+  outline: 2px solid var(--wdg-primary, #3b82f6);
+  outline-offset: 2px;
+}

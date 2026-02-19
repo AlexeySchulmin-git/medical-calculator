@@ -1,0 +1,8 @@
+cd C:\Projects\medical-calculator
+# Терминал 1: API сервер (порт 3003)
+node medical-api-server.cjs
+ 
+# Терминал 2: Next.js приложение (порт 3000)
+npm run dev
+
+test-api-key-12345

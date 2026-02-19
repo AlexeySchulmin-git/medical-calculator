@@ -1,0 +1,139 @@
+Шаг 1: Пересоздайте проект
+bash# Удалите текущий если хотите начать чисто
+# Или создайте новый рядом
+
+cd C:\Projects
+
+npx create-next-app@latest medical-calculator
+```
+
+**На вопросы отвечайте так:**
+```
+✔ Would you like to use TypeScript? … No   ← ВАЖНО!
+✔ Would you like to use ESLint? … Yes
+✔ Would you like to use Tailwind CSS? … Yes
+✔ Would you like to use `src/` directory? … Yes
+✔ Would you like to use App Router? … Yes
+✔ Would you like to customize import alias? … No
+
+Шаг 2: Установите только нужные зависимости
+bashcd medical-calculator
+
+# База данных - простой mysql2 БЕЗ Prisma
+npm install mysql2
+
+# Форма и валидация
+npm install react-hook-form
+
+# Email
+npm install nodemailer
+
+# UI иконки
+npm install lucide-react
+
+# Утилиты
+npm install axios
+Всё! Никакого Prisma, никакого TypeScript.
+
+Шаг 3: Создайте базу данных в phpMyAdmin
+sql-- Откройте http://localhost/phpmyadmin
+-- Вкладка SQL → выполните:
+
+CREATE DATABASE medical_calculator
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+USE medical_calculator;
+
+-- Таблица клиентов (компании которые покупают виджет)
+CREATE TABLE clients (
+  id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  api_key VARCHAR(64) UNIQUE NOT NULL,
+  domain VARCHAR(255) NOT NULL,
+  company_name VARCHAR(255),
+  email VARCHAR(255),
+  subscription ENUM('basic','pro','enterprise') DEFAULT 'basic',
+  active TINYINT(1) DEFAULT 1,
+  settings JSON,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Таблица заявок
+CREATE TABLE orders (
+  id VARCHAR(36) PRIMARY KEY DEFAULT (UUID()),
+  client_id VARCHAR(36),
+  from_address VARCHAR(500) NOT NULL,
+  from_lat DECIMAL(10,8),
+  from_lon DECIMAL(11,8),
+  to_address VARCHAR(500) NOT NULL,
+  to_lat DECIMAL(10,8),
+  to_lon DECIMAL(11,8),
+  distance DECIMAL(8,2),
+  price DECIMAL(10,2),
+  floor_num INT,
+  no_elevator TINYINT(1) DEFAULT 0,
+  weight INT,
+  diagnosis VARCHAR(50),
+  phone VARCHAR(20) NOT NULL,
+  round_trip TINYINT(1) DEFAULT 0,
+  payment_method VARCHAR(20),
+  medical_escort TINYINT(1) DEFAULT 0,
+  bonus_used DECIMAL(10,2),
+  customer_name VARCHAR(255),
+  customer_email VARCHAR(255),
+  comment TEXT,
+  status ENUM('new','sent','completed','cancelled') DEFAULT 'new',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL,
+  INDEX idx_client_id (client_id),
+  INDEX idx_status (status),
+  INDEX idx_created_at (created_at)
+);
+
+-- Кэш адресов DaData (экономия запросов)
+CREATE TABLE address_cache (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  query_text VARCHAR(255) UNIQUE NOT NULL,
+  response_data JSON NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMP NOT NULL,
+  INDEX idx_expires (expires_at)
+);
+
+Шаг 4: Настройте .env.local
+env# База данных
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASS=
+DB_NAME=medical_calculator
+
+# DaData
+DADATA_API_KEY=ваш_ключ
+
+# Email
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your@gmail.com
+SMTP_PASS=your_app_password
+
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+Шаг 5: Создайте подключение к БД
+Создайте файл src/lib/db.js:
+javascript// src/lib/db.js
+import mysql from 'mysql2/promise';
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+});
+
+export default pool;
