@@ -6,3 +6,12 @@ node medical-api-server.cjs
 npm run dev
 
 test-api-key-12345
+
+8509432707:AAHgJC9WcpCFOpqMndR8_o1Vxp9PlB_ijHY
+8509432707
+
+https://api.telegram.org/bot8509432707:AAHgJC9WcpCFOpqMndR8_o1Vxp9PlB_ijHY/setWebhook?url=https://medtaxi.50/api/telegram/webhook
+
+GOOGLE_SERVICE_ACCOUNT_KEY_FILE=./google-service-account.json  # в .env.local
+
+postgresql://postgres.mpjnghsmibdfjkqeuppi:Alexey0511!!@aws-1-eu-west-1.pooler.supabase.com:6543/postgres
