@@ -70,33 +70,33 @@ const Calculator = ({ config }) => {
     const otherField = field === 'from' ? 'to' : 'from';
     const otherLat = formData[`${otherField}_lat`];
     const otherLon = formData[`${otherField}_lon`];
+    const otherAddress = formData[`${otherField}_address`];
     
     if (suggestion.data.geo_lat && suggestion.data.geo_lon && otherLat && otherLon) {
-      calculateDistance(
-        field === 'from' ? suggestion.data.geo_lat : otherLat,
-        field === 'from' ? suggestion.data.geo_lon : otherLon,
-        field === 'from' ? otherLat : suggestion.data.geo_lat,
-        field === 'from' ? otherLon : suggestion.data.geo_lon
-      );
+      const fromLat  = field === 'from' ? suggestion.data.geo_lat : otherLat;
+      const fromLon  = field === 'from' ? suggestion.data.geo_lon : otherLon;
+      const toLat    = field === 'from' ? otherLat : suggestion.data.geo_lat;
+      const toLon    = field === 'from' ? otherLon : suggestion.data.geo_lon;
+      const fromAddr = field === 'from' ? suggestion.value : otherAddress;
+      const toAddr   = field === 'from' ? otherAddress : suggestion.value;
+      calculateDistance(fromLat, fromLon, toLat, toLon, fromAddr, toAddr);
     }
   };
 
-  // Расчёт расстояния
-  const calculateDistance = async (fromLat, fromLon, toLat, toLon) => {
+  // Расчёт расстояния и цены через сервер
+  const calculateDistance = async (fromLat, fromLon, toLat, toLon, fromAddress, toAddress) => {
     try {
       setLoading(true);
       const response = await api.fetch('/api/dadata/distance', {
         method: 'POST',
         body: JSON.stringify({
-          from_lat: fromLat,
-          from_lon: fromLon,
-          to_lat: toLat,
-          to_lon: toLon
+          from: { lat: parseFloat(fromLat), lon: parseFloat(fromLon) },
+          to:   { lat: parseFloat(toLat),   lon: parseFloat(toLon)   }
         })
       });
       
       setDistance(response.distance);
-      calculatePrice(response.distance);
+      await calculatePrice(response.distance, fromAddress, toAddress);
     } catch (error) {
       console.error('Distance calculation error:', error);
     } finally {
@@ -104,39 +104,29 @@ const Calculator = ({ config }) => {
     }
   };
 
-  // Расчёт стоимости
-  const calculatePrice = (dist) => {
-    const priceData = {
-      distance: dist || 0,
-      weight: parseFloat(formData.weight) || 0,
-      floor: parseInt(formData.floor_num) || 1,
-      noElevator: formData.no_elevator,
-      roundTrip: formData.round_trip,
-      medEscort: formData.medical_escort,
-      settings
-    };
-
-    // Простая логика расчёта (заменит на API вызов)
-    let calculatedPrice = settings.pricing.base;
-    calculatedPrice += (dist || 0) * settings.pricing.per_km;
-    
-    if (priceData.weight > settings.pricing.overweight_limit) {
-      calculatedPrice += settings.pricing.overweight_fee;
+  // Расчёт стоимости через сервер (с городскими коэффициентами и тарифами из БД)
+  const calculatePrice = async (dist, fromAddr, toAddr) => {
+    try {
+      const currentForm = formData;
+      const response = await api.fetch('/api/calculate-price', {
+        method: 'POST',
+        body: JSON.stringify({
+          total_distance: dist || 0,
+          from_city: fromAddr || currentForm.from_address || '',
+          to_city:   toAddr   || currentForm.to_address   || '',
+          weight:        parseFloat(currentForm.weight) || 0,
+          descent_floors: parseInt(currentForm.descent_floors) || 0,
+          ascent_floors:  parseInt(currentForm.ascent_floors)  || 0,
+          waiting_slots:  parseInt(currentForm.waiting_slots)  || 0,
+          need_oxygen: !!currentForm.need_oxygen,
+          no_escort:   currentForm.no_escort !== undefined ? !!currentForm.no_escort : false,
+          round_trip:  !!currentForm.round_trip,
+        })
+      });
+      setPrice(response.price);
+    } catch (error) {
+      console.error('Price calculation error:', error);
     }
-    
-    if (priceData.noElevator && priceData.floor > 1) {
-      calculatedPrice += (priceData.floor - 1) * settings.pricing.floor_fee;
-    }
-    
-    if (priceData.medEscort) {
-      calculatedPrice += settings.pricing.escort_fee;
-    }
-    
-    if (priceData.roundTrip) {
-      calculatedPrice *= 1.8;
-    }
-
-    setPrice(Math.round(calculatedPrice));
   };
 
   // Отправка формы
@@ -150,7 +140,10 @@ const Calculator = ({ config }) => {
         method: 'POST',
         body: JSON.stringify({
           ...formData,
+          total_distance: distance,
           distance,
+          from_city: formData.from_address,
+          to_city:   formData.to_address,
           price
         })
       });
@@ -168,8 +161,8 @@ const Calculator = ({ config }) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     
     // Пересчёт стоимости при изменении параметров
-    if (distance !== null && ['weight', 'floor_num', 'no_elevator', 'round_trip', 'medical_escort'].includes(field)) {
-      calculatePrice(distance);
+    if (distance !== null && ['weight', 'floor_num', 'no_elevator', 'round_trip', 'medical_escort', 'descent_floors', 'ascent_floors', 'waiting_slots', 'need_oxygen'].includes(field)) {
+      calculatePrice(distance, formData.from_address, formData.to_address);
     }
   };
 

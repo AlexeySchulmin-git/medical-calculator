@@ -1,0 +1,12 @@
+forward-logs-shared.ts:95 Download the React DevTools for a better development experience: https://react.dev/link/react-devtools
+forward-logs-shared.ts:95 [HMR] connected
+widget-calculator.js:1356 🔍 renderSuggestions called with 5 suggestions
+widget-calculator.js:1357 📍 Current addressState: {cityFiasId: null, settlementFiasId: null, streetFiasId: null, cityName: '', streetName: '', …}
+widget-calculator.js:1364 📝 Suggestion: {value: 'Московская обл, г Ногинск', fiasLevel: '3', city: 'Ногинск', settlement: null, street: null, …}
+widget-calculator.js:1364 📝 Suggestion: {value: 'Респ Северная Осетия - Алания, Пригородный р-н, село Ногир', fiasLevel: '6', city: null, settlement: 'Ногир', street: null, …}
+widget-calculator.js:1364 📝 Suggestion: {value: 'Сахалинская обл, Ногликский р-н, пгт Ноглики', fiasLevel: '6', city: null, settlement: 'Ноглики', street: null, …}
+widget-calculator.js:1364 📝 Suggestion: {value: 'Респ Дагестан, Ногайский р-н', fiasLevel: '3', city: null, settlement: null, street: null, …}
+widget-calculator.js:1364 📝 Suggestion: {value: 'Карачаево-Черкесская Респ, Ногайский р-н', fiasLevel: '3', city: null, settlement: null, street: null, …}
+widget-calculator.js:1402 🖱️ Clicked suggestion: {fiasLevel: '3', city: 'Ногинск', settlement: '', street: '', house: '', …}
+widget-calculator.js:1417 🏙️ Selected city/settlement: Ногинск fiasLevel: 3
+widget-calculator.js:1421 💾 Updated addressState: {cityFiasId: '40ae04e3-9a69-44ea-8bd7-6c6f08e1a4ca', settlementFiasId: '', streetFiasId: null, cityName: 'Ногинск', streetName: '', …}

@@ -49,16 +49,22 @@ class WidgetAPI {
     });
   }
 
-  // Расчёт расстояния
+  // Расчёт расстояния маршрута База→Откуда→Куда→База
   async calculateDistance(fromLat, fromLon, toLat, toLon) {
     return this.fetch('/api/dadata/distance', {
       method: 'POST',
       body: JSON.stringify({
-        from_lat: fromLat,
-        from_lon: fromLon,
-        to_lat: toLat,
-        to_lon: toLon
+        from: { lat: parseFloat(fromLat), lon: parseFloat(fromLon) },
+        to:   { lat: parseFloat(toLat),   lon: parseFloat(toLon)   }
       })
+    });
+  }
+
+  // Предварительный расчёт цены (без создания заказа)
+  async calculatePrice(priceData) {
+    return this.fetch('/api/calculate-price', {
+      method: 'POST',
+      body: JSON.stringify(priceData)
     });
   }
 

@@ -13,7 +13,6 @@ const PORT = process.env.PORT || 3003;
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
 
 // PostgreSQL connection
 let pool;
@@ -165,11 +164,86 @@ async function initializeDatabase() {
       )
     `);
 
+    // Таблица покупателей (для системы лояльности)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS customers (
+        id SERIAL PRIMARY KEY,
+        phone VARCHAR(50) NOT NULL UNIQUE,
+        bonus_balance INT NOT NULL DEFAULT 0,
+        total_orders INT NOT NULL DEFAULT 0,
+        total_spent DECIMAL(12,2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Настройки лояльности в pricing_settings
+    await pool.query(`
+      INSERT INTO pricing_settings (key, value, label) VALUES
+        ('loyalty_enabled', 0,  'Система лояльности: 1=вкл, 0=выкл'),
+        ('loyalty_percent', 5,  'Процент начисления бонусов от суммы заказа')
+      ON CONFLICT (key) DO NOTHING
+    `);
+
     // Миграция: добавляем колонки если ещё нет
     try {
       await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(50) DEFAULT NULL`);
       await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_spreadsheet_id VARCHAR(200) DEFAULT NULL`);
     } catch (_) { /* игнорируем */ }
+
+    // Миграция orders: добавляем колонки для бонусов
+    try {
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_earned INT DEFAULT 0`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_used INT DEFAULT 0`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS escort_count INT DEFAULT 1`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS floor_descent INT DEFAULT 0`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS floor_ascent INT DEFAULT 0`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS need_oxygen BOOLEAN DEFAULT FALSE`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_number VARCHAR(20)`);
+    } catch (_) { /* игнорируем */ }
+
+    // Миграция customers: нормализация телефонов + объединение дубликатов
+    try {
+      // Шаг 1: нормализуем все телефоны — убираем нецифровые символы, приводим к 11 цифрам
+      // regexp_replace с 'g' поддерживается в PostgreSQL 9.4+
+      await pool.query(`
+        UPDATE customers
+        SET phone = CASE
+          WHEN length(regexp_replace(phone, '[^0-9]', '', 'g')) = 10
+            THEN '7' || regexp_replace(phone, '[^0-9]', '', 'g')
+          ELSE regexp_replace(phone, '[^0-9]', '', 'g')
+        END
+        WHERE phone ~ '[^0-9]' OR (phone ~ '^[0-9]{10}$')
+      `);
+      // Шаг 2: объединяем дубликаты — суммируем баллы/заказы/траты, оставляем MIN(id)
+      await pool.query(`
+        WITH dupes AS (
+          SELECT phone,
+                 SUM(bonus_balance) AS total_bonus,
+                 SUM(total_orders)  AS total_ord,
+                 SUM(total_spent)   AS total_sp,
+                 MIN(created_at)    AS first_seen,
+                 MIN(id)            AS keep_id
+          FROM customers
+          GROUP BY phone
+          HAVING COUNT(*) > 1
+        )
+        UPDATE customers c
+        SET bonus_balance = d.total_bonus,
+            total_orders  = d.total_ord,
+            total_spent   = d.total_sp,
+            created_at    = d.first_seen
+        FROM dupes d
+        WHERE c.id = d.keep_id
+      `);
+      await pool.query(`
+        DELETE FROM customers
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM customers GROUP BY phone
+        )
+      `);
+      console.log('✅ Миграция customers: телефоны нормализованы, дубликаты объединены');
+    } catch (migErr) { console.warn('⚠️  Миграция customers:', migErr.message); }
 
     // Загружаем настройки в кэш
     await loadPricingSettings();
@@ -190,7 +264,9 @@ let pricingCache = {
   per_km: 45,
   waiting_30min: 500,
   oxygen_fee: 800,
-  no_escort_fee: 300
+  no_escort_fee: 300,
+  loyalty_enabled: 0,
+  loyalty_percent: 5
 };
 
 // Кэш тарифов этажей: { descent: [{weight_from,weight_to,price_per_floor},...], ascent: [...] }
@@ -236,6 +312,15 @@ function getFloorPrice(direction, weight) {
   return direction === 'descent' ? 250 : 350; // fallback
 }
 
+// Нормализация телефона: оставляем только цифры, приводим к формату 7XXXXXXXXXX
+function normalizePhone(raw) {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 11) return digits;
+  if (digits.length === 10) return '7' + digits;
+  return digits || null;
+}
+
 // Найти городскую ставку по названию города (частичное совпадение)
 function findCityRate(cityName) {
   if (!cityName) return null;
@@ -267,12 +352,17 @@ async function sendTelegramNotification(order, chatId) {
   if (!token || !chatId) return;
 
   const options = [
-    order.floor_descent > 0 ? `⬇️ Спуск: ${order.floor_descent} эт.` : null,
-    order.floor_ascent  > 0 ? `⬆️ Подъём: ${order.floor_ascent} эт.` : null,
+    order.floor_descent !== undefined && order.floor_descent !== null 
+      ? `⬇️ Спуск: ${order.floor_descent === 0 ? 'Не нужен' : order.floor_descent + ' эт.'}` 
+      : null,
+    order.floor_ascent !== undefined && order.floor_ascent !== null 
+      ? `⬆️ Подъём: ${order.floor_ascent === 0 ? 'Не нужен' : order.floor_ascent + ' эт.'}` 
+      : null,
     order.medical_escort    ? `🩺 Мед. сопровождение` : null,
     order.need_oxygen       ? `💨 Кислород` : null,
     order.round_trip        ? `🔄 Туда-обратно` : null,
-  ].filter(Boolean).join('\n');
+    order.escort_count > 0  ? `👥 Сопровождение: ${order.escort_count} чел.` : null
+  ].filter(v => v).join(', ');
 
   const text = [
     `🚑 *Новая заявка ${order.orderNumber}*`,
@@ -284,7 +374,7 @@ async function sendTelegramNotification(order, chatId) {
     `📍 *Куда:* ${order.to_address}`,
     order.distance ? `🛣 Расстояние: ${order.distance} км` : null,
     ``,
-    `💰 *Стоимость: ${Number(order.price).toLocaleString('ru-RU')} ₽*`,
+    `💰 *Стоимость: ${Number(order.price).toLocaleString('ru-RU')} ₽*${order.bonus_used > 0 ? ` _(списано ${order.bonus_used} бонусов)_` : ''}`,
     order.weight ? `⚖️ Вес: ${order.weight} кг` : null,
     order.diagnosis ? `🏥 Диагноз: ${order.diagnosis}` : null,
     options ? `\n${options}` : null,
@@ -415,24 +505,33 @@ async function appendOrderToSheet(order, spreadsheetId) {
 
 initGoogleSheets();
 
-// Resend email клиент
-let resend = null;
+// Resend email клиенты (менеджер и клиент могут иметь разные API ключи)
+let resendManager = null;
+let resendClient  = null;
 
 function initMailer() {
-  if (!process.env.RESEND_API_KEY) {
+  const managerKey = process.env.RESEND_API_KEY;
+  const clientKey  = process.env.RESEND_CLIENT_API_KEY || managerKey;
+
+  if (!managerKey) {
     console.log('⚠️  RESEND_API_KEY not configured, email notifications disabled');
-    return null;
+    return;
   }
-  console.log('✅ Resend email client initialized');
-  return new Resend(process.env.RESEND_API_KEY);
+  resendManager = new Resend(managerKey);
+  resendClient  = clientKey ? new Resend(clientKey) : resendManager;
+  console.log(`✅ Resend email client initialized (manager key: ...${managerKey.slice(-6)}, client key: ...${clientKey.slice(-6)})`);
 }
 
-resend = initMailer();
+initMailer();
 
 async function sendOrderEmails(order) {
-  if (!resend) return;
+  if (!resendManager) { console.log('⚠️ Resend not initialized, skipping email'); return; }
 
-  const managerEmail = process.env.MANAGER_EMAIL || 'alexeyschulmin@gmail.com';
+  const managerEmail  = process.env.MANAGER_EMAIL || 'alexeyschulmin@gmail.com';
+  const testClientEmail = process.env.TEST_CLIENT_EMAIL || '';
+  const clientEmailTo = order.email || testClientEmail;
+
+  console.log(`📧 sendOrderEmails: manager=${managerEmail}, client=${clientEmailTo || 'none'}, TEST_CLIENT_EMAIL=${testClientEmail}`);
 
   const optionsList = [
     order.floor_descent > 0 ? `Спуск без лифта: ${order.floor_descent} эт.` : null,
@@ -443,6 +542,10 @@ async function sendOrderEmails(order) {
     order.round_trip        ? 'Туда и обратно' : null,
   ].filter(Boolean);
 
+  const bonusRow = order.bonus_used > 0
+    ? `<tr><td style="padding:6px 12px;background:#fef9c3;font-weight:600">⭐ Оплачено бонусами</td><td style="padding:6px 12px;color:#854d0e"><strong>${order.bonus_used} ₽</strong> (из ${order.original_price} ₽)</td></tr>`
+    : '';
+
   // Письмо менеджеру
   const managerHtml = `
 <h2>Новая заявка ${order.orderNumber}</h2>
@@ -450,7 +553,8 @@ async function sendOrderEmails(order) {
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Откуда</td><td style="padding:6px 12px">${order.from_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Куда</td><td style="padding:6px 12px">${order.to_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Расстояние</td><td style="padding:6px 12px">${order.distance} км</td></tr>
-  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Стоимость</td><td style="padding:6px 12px"><strong>${order.price} ₽</strong></td></tr>
+  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Стоимость к оплате</td><td style="padding:6px 12px"><strong>${order.price} ₽</strong></td></tr>
+  ${bonusRow}
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Телефон</td><td style="padding:6px 12px">${order.phone}</td></tr>
   ${order.email ? `<tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Email</td><td style="padding:6px 12px">${order.email}</td></tr>` : ''}
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Вес</td><td style="padding:6px 12px">${order.weight} кг</td></tr>
@@ -462,24 +566,22 @@ async function sendOrderEmails(order) {
   `;
 
   try {
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await resendManager.emails.send({
       from: 'Медицинский калькулятор <onboarding@resend.dev>',
       to: [managerEmail],
       subject: `🚑 Новая заявка ${order.orderNumber} — ${order.phone}`,
       html: managerHtml
     });
-    if (error) {
-      console.error('❌ Manager email error:', JSON.stringify(error));
-    } else {
-      console.log(`✅ Manager email sent to ${managerEmail}, id: ${data.id}`);
-    }
+    if (error) console.error('❌ Manager email error:', JSON.stringify(error));
+    else console.log(`✅ Manager email sent to ${managerEmail}, id: ${data.id}`);
   } catch (err) {
     console.error('❌ Manager email exception:', err.message);
   }
 
-  // Письмо клиенту (если указан email)
-  if (order.email) {
-    const clientHtml = `
+  // Письмо клиенту
+  if (!clientEmailTo) { console.log('⚠️ No client email, skipping'); return; }
+
+  const clientHtml = `
 <h2>Ваша заявка принята!</h2>
 <p>Номер заявки: <strong>${order.orderNumber}</strong></p>
 <p>Мы свяжемся с вами по номеру <strong>${order.phone}</strong> в ближайшее время.</p>
@@ -488,27 +590,24 @@ async function sendOrderEmails(order) {
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Откуда</td><td style="padding:6px 12px">${order.from_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Куда</td><td style="padding:6px 12px">${order.to_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Расстояние</td><td style="padding:6px 12px">${order.distance} км</td></tr>
-  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Предварительная стоимость</td><td style="padding:6px 12px"><strong>${order.price} ₽</strong></td></tr>
+  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Стоимость к оплате</td><td style="padding:6px 12px"><strong>${order.price} ₽</strong></td></tr>
+  ${bonusRow}
   ${optionsList.length > 0 ? `<tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Опции</td><td style="padding:6px 12px">${optionsList.join(', ')}</td></tr>` : ''}
 </table>
 <p style="color:#64748b;font-size:12px;margin-top:16px">Стоимость предварительная, без учёта платных дорог. Не является публичной офертой.</p>
-    `;
+  `;
 
-    try {
-      const { data, error } = await resend.emails.send({
-        from: 'Медицинский калькулятор <onboarding@resend.dev>',
-        to: [order.email],
-        subject: `Ваша заявка ${order.orderNumber} принята`,
-        html: clientHtml
-      });
-      if (error) {
-        console.error('❌ Client email error:', JSON.stringify(error));
-      } else {
-        console.log(`✅ Client email sent to ${order.email}, id: ${data.id}`);
-      }
-    } catch (err) {
-      console.error('❌ Client email exception:', err.message);
-    }
+  try {
+    const { data, error } = await resendClient.emails.send({
+      from: 'Медицинский калькулятор <onboarding@resend.dev>',
+      to: [clientEmailTo],
+      subject: `Ваша заявка ${order.orderNumber} принята`,
+      html: clientHtml
+    });
+    if (error) console.error('❌ Client email error:', JSON.stringify(error));
+    else console.log(`✅ Client email sent to ${clientEmailTo}, id: ${data.id}`);
+  } catch (err) {
+    console.error('❌ Client email exception:', err.message);
   }
 }
 
@@ -545,8 +644,8 @@ app.get('/api/widget/config', async (req, res) => {
           required: ['phone', 'from_address', 'to_address', 'personal_data'],
           pricing: { ...pricingCache },
           bonus: {
-            enabled: true,
-            percent: 5
+            enabled: pricingCache.loyalty_enabled,
+            percent: pricingCache.loyalty_percent
           },
           personal_data_url: '/privacy',
           ui: {
@@ -591,8 +690,8 @@ app.get('/api/widget/config', async (req, res) => {
       required: ['phone', 'from_address', 'to_address', 'personal_data'],
       pricing: { ...pricingCache },
       bonus: {
-        enabled: true,
-        percent: 5
+        enabled: !!pricingCache.loyalty_enabled,
+        percent: pricingCache.loyalty_percent || 5
       },
       personal_data_url: '/privacy',
       ui: {
@@ -621,6 +720,36 @@ app.get('/api/widget/config', async (req, res) => {
   }
 });
 
+// Calculate price endpoint (для предварительного расчёта в виджете)
+app.post('/api/calculate-price', async (req, res) => {
+  try {
+    const apiKey = req.headers['x-api-key'];
+    if (!apiKey) return res.status(401).json({ error: 'API key required' });
+
+    const body = req.body;
+    const priceData = {
+      totalDistance: parseFloat(body.total_distance || body.distance) || 0,
+      fromCity: body.from_city || body.from_address || '',
+      toCity:   body.to_city   || body.to_address   || '',
+      weight:        parseFloat(body.weight) || 0,
+      descentFloors: parseInt(body.descent_floors || body.floor_descent) || 0,
+      ascentFloors:  parseInt(body.ascent_floors  || body.floor_ascent)  || 0,
+      waitingSlots:  parseInt(body.waiting_slots)  || 0,
+      needOxygen: !!body.need_oxygen,
+      noEscort:   body.no_escort !== undefined ? !!body.no_escort : false,
+      roundTrip:  !!body.round_trip,
+    };
+
+    const price = calculatePrice(priceData);
+    console.log(`💰 /api/calculate-price: dist=${priceData.totalDistance} from="${priceData.fromCity.slice(0,30)}" to="${priceData.toCity.slice(0,30)}" → ${price}₽`);
+
+    return res.json({ success: true, price });
+  } catch (error) {
+    console.error('Calculate price error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Orders endpoint
 app.post('/api/orders', async (req, res) => {
   try {
@@ -629,6 +758,10 @@ app.post('/api/orders', async (req, res) => {
 
     if (!apiKey) {
       return res.status(401).json({ error: 'API key required' });
+    }
+
+    if (!pool) {
+      return res.status(500).json({ error: 'Database not connected' });
     }
 
     // Валидация обязательных полей
@@ -654,19 +787,19 @@ app.post('/api/orders', async (req, res) => {
     const clientSpreadsheetId = clientsRes.rows[0].google_spreadsheet_id || null;
 
     // Генерируем уникальный номер заявки
-    const orderNumber = `ORD-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    const orderNumber = `ORD-${String(Date.now()).slice(-8)}-${Math.floor(Math.random() * 100)}`;
 
     // Расчёт стоимости
     const priceData = {
       totalDistance: body.total_distance || body.distance || 0,
-      fromCity: body.from_city || '',
-      toCity:   body.to_city   || '',
+      fromCity: body.from_city || body.from_address || '',
+      toCity:   body.to_city   || body.to_address   || '',
       weight:   parseFloat(body.weight) || 0,
-      descentFloors: parseInt(body.descent_floors) || 0,
-      ascentFloors:  parseInt(body.ascent_floors)  || 0,
+      descentFloors: parseInt(body.floor_descent || body.descent_floors) || 0,
+      ascentFloors:  parseInt(body.floor_ascent  || body.ascent_floors)  || 0,
       waitingSlots:  parseInt(body.waiting_slots)  || 0,
       needOxygen: !!body.need_oxygen,
-      noEscort:   !!body.no_escort,
+      noEscort:   body.no_escort !== undefined ? !!body.no_escort : (parseInt(body.escort_count) === 0),
       roundTrip:  !!body.round_trip,
     };
 
@@ -675,13 +808,15 @@ app.post('/api/orders', async (req, res) => {
     // Сохраняем заявку в базу данных
     await pool.query(`
       INSERT INTO orders (
-        client_id, customer_name, phone, customer_email,
+        client_id, order_number, customer_name, phone, customer_email,
         from_address, to_address, floor_num, no_elevator,
         diagnosis, weight, round_trip, payment_method,
-        medical_escort, comment, distance, price, status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+        medical_escort, comment, distance, price, status,
+        floor_descent, floor_ascent, need_oxygen, escort_count
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
     `, [
       clientId,
+      orderNumber,
       body.customer_name || '',
       body.phone,
       body.email || '',
@@ -690,15 +825,62 @@ app.post('/api/orders', async (req, res) => {
       body.floor_num || 1,
       body.no_elevator ? true : false,
       body.diagnosis || '',
-      body.weight || 0,
+      parseFloat(body.weight) || 0,
       body.round_trip ? true : false,
       body.payment_method || '',
       body.medical_escort ? true : false,
       body.comment || '',
-      body.distance || 0,
+      parseFloat(body.distance) || 0,
       calculatedPrice,
-      'new'
+      'new',
+      parseInt(body.floor_descent) || 0,
+      parseInt(body.floor_ascent) || 0,
+      body.need_oxygen ? true : false,
+      parseInt(body.escort_count) || 0
     ]);
+
+    // Система лояльности: списание и начисление бонусов
+    const bonusUsed   = parseInt(body.bonus_used) || 0;
+    let   bonusEarned = 0;
+    const finalPrice  = Math.max(0, calculatedPrice - bonusUsed);
+
+    if (pricingCache.loyalty_enabled && body.phone) {
+      const phone = normalizePhone(body.phone);
+      bonusEarned = Math.round(finalPrice * (pricingCache.loyalty_percent || 5) / 100);
+
+      // Списание: уменьшаем баланс (не уходим в минус)
+      if (bonusUsed > 0) {
+        pool.query(`
+          UPDATE customers SET
+            bonus_balance = GREATEST(0, bonus_balance - $1),
+            updated_at    = CURRENT_TIMESTAMP
+          WHERE phone = $2
+        `, [bonusUsed, phone]).catch(err => console.error('Loyalty deduct error:', err.message));
+      }
+
+      // Начисление: upsert клиента
+      if (bonusEarned > 0) {
+        pool.query(`
+          INSERT INTO customers (phone, bonus_balance, total_orders, total_spent)
+          VALUES ($1, $2, 1, $3)
+          ON CONFLICT (phone) DO UPDATE
+            SET bonus_balance = customers.bonus_balance + $2,
+                total_orders  = customers.total_orders + 1,
+                total_spent   = customers.total_spent + $3,
+                updated_at    = CURRENT_TIMESTAMP
+        `, [phone, bonusEarned, finalPrice]).catch(err => console.error('Loyalty earn error:', err.message));
+      } else if (bonusUsed === 0) {
+        // Первый заказ — просто создаём запись клиента без баллов
+        pool.query(`
+          INSERT INTO customers (phone, total_orders, total_spent)
+          VALUES ($1, 1, $2)
+          ON CONFLICT (phone) DO UPDATE
+            SET total_orders = customers.total_orders + 1,
+                total_spent  = customers.total_spent + $2,
+                updated_at   = CURRENT_TIMESTAMP
+        `, [phone, finalPrice]).catch(err => console.error('Loyalty upsert error:', err.message));
+      }
+    }
 
     // Отправляем уведомления (не блокируем ответ)
     const notifyData = {
@@ -707,7 +889,10 @@ app.post('/api/orders', async (req, res) => {
       from_address: body.from_address,
       to_address: body.to_address,
       distance: body.distance || 0,
-      price: calculatedPrice,
+      price: finalPrice,
+      original_price: calculatedPrice,
+      bonus_used: bonusUsed,
+      bonus_earned: bonusEarned,
       phone: body.phone,
       email: body.email || '',
       weight: body.weight || 0,
@@ -723,31 +908,15 @@ app.post('/api/orders', async (req, res) => {
     };
     sendTelegramNotification(notifyData, clientTgChatId).catch(err => console.error('Telegram error:', err.message));
     appendOrderToSheet(notifyData, clientSpreadsheetId).catch(err => console.error('Sheets error:', err.message));
-    sendOrderEmails({
-      orderNumber,
-      from_address: body.from_address,
-      to_address: body.to_address,
-      distance: body.distance || 0,
-      price: calculatedPrice,
-      phone: body.phone,
-      email: body.email || '',
-      weight: body.weight || 0,
-      diagnosis: body.diagnosis || '',
-      comment: body.comment || '',
-      floor_descent: body.floor_descent || 0,
-      floor_ascent: body.floor_ascent || 0,
-      medical_escort: body.medical_escort,
-      med_escort_count: body.med_escort_count || 1,
-      escort_count: body.escort_count || 0,
-      need_oxygen: body.need_oxygen,
-      round_trip: body.round_trip
-    }).catch(err => console.error('Email send error:', err.message));
+    sendOrderEmails(notifyData).catch(err => console.error('Email send error:', err.message));
 
     res.json({
       success: true,
       orderNumber: orderNumber,
       order_number: orderNumber,
-      price: calculatedPrice,
+      price: finalPrice !== undefined ? finalPrice : calculatedPrice,
+      bonus_earned: bonusEarned,
+      bonus_used: bonusUsed,
       status: 'new'
     });
 
@@ -796,13 +965,20 @@ app.post('/api/dadata/suggest', async (req, res) => {
       
       console.log('🔑 Using DaData API key:', apiKey.substring(0, 10) + '...');
       
-      const requestData = JSON.stringify({
+      const requestBody = {
         query: query,
         count: count,
-        from_bound: { "value": "country" },
-        to_bound: { "value": "house" },
+        from_bound: req.body.from_bound || { "value": "country" },
+        to_bound: req.body.to_bound || { "value": "house" },
         restrict_value: true
-      });
+      };
+
+      // Каскадный выбор: если передан locations — добавляем фильтр
+      if (req.body.locations) {
+        requestBody.locations = req.body.locations;
+      }
+
+      const requestData = JSON.stringify(requestBody);
 
       const options = {
         hostname: 'suggestions.dadata.ru',
@@ -892,6 +1068,95 @@ app.post('/api/dadata/suggest', async (req, res) => {
   } catch (error) {
     console.error('❌ Suggest API error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DaData clean endpoint (автоисправление адресов)
+app.post('/api/dadata/clean', async (req, res) => {
+  try {
+    const { address } = req.body;
+    const apiKey = req.headers['x-api-key'];
+
+    if (!apiKey) {
+      return res.status(401).json({ error: 'API key required' });
+    }
+
+    if (!address) {
+      return res.status(400).json({ error: 'Address parameter is required' });
+    }
+
+    const dadataApiKey = process.env.DADATA_API_KEY;
+    
+    if (!dadataApiKey || dadataApiKey === 'test-api-key') {
+      console.log('⚠️ DaData API key not found for clean endpoint');
+      return res.json({
+        success: true,
+        result: address,
+        fallback: true
+      });
+    }
+
+    const requestData = JSON.stringify([address]);
+
+    const options = {
+      hostname: 'cleaner.dadata.ru',
+      port: 443,
+      path: '/api/v1/clean/address',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Token ${dadataApiKey}`,
+        'X-Secret': process.env.DADATA_SECRET_KEY || dadataApiKey,
+        'Content-Length': Buffer.byteLength(requestData)
+      }
+    };
+
+    const dadataResponse = await new Promise((resolve, reject) => {
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(new Error('Failed to parse DaData response'));
+          }
+        });
+      });
+      req.on('error', reject);
+      req.write(requestData);
+      req.end();
+    });
+
+    const cleaned = dadataResponse && dadataResponse[0];
+    
+    if (!cleaned || !cleaned.result) {
+      console.log(`⚠️ Clean API returned empty result for: "${address}"`);
+      return res.json({
+        success: true,
+        result: address,
+        fallback: true
+      });
+    }
+    
+    console.log(`🧹 Cleaned address: "${address}" → "${cleaned.result}"`);
+    
+    res.json({
+      success: true,
+      result: cleaned.result,
+      geo_lat: cleaned.geo_lat,
+      geo_lon: cleaned.geo_lon,
+      qc: cleaned.qc
+    });
+
+  } catch (error) {
+    console.error('Error in clean endpoint:', error);
+    res.json({
+      success: true,
+      result: req.body.address,
+      fallback: true
+    });
   }
 });
 
@@ -1046,140 +1311,170 @@ async function cacheSuggestion(key, suggestions) {
   }
 }
 
-// Distance calculation endpoint (using GraphHopper -> OSRM -> Haversine fallback)
+// ── Вспомогательная функция: HTTP GET с таймаутом ─────
+function httpGet(url, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, (response) => {
+      let data = '';
+      response.on('data', (chunk) => { data += chunk; });
+      response.on('end', () => {
+        try {
+          resolve({ status: response.statusCode, data: JSON.parse(data) });
+        } catch (e) {
+          reject(new Error('Invalid JSON response'));
+        }
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => { req.destroy(); reject(new Error('Request timeout')); });
+  });
+}
+
+// Distance calculation endpoint (GraphHopper -> OSRM -> Haversine)
+// Маршрут: База → Откуда → Куда → База
+// Принимает: { from: {lat,lon}, to: {lat,lon} }
+//        ИЛИ: { from_lat, from_lon, to_lat, to_lon }  (плоский формат от виджета)
 app.post('/api/dadata/distance', async (req, res) => {
   try {
-    const { from, to } = req.body;
     const apiKey = req.headers['x-api-key'];
-
     if (!apiKey) {
       return res.status(401).json({ error: 'API key required' });
     }
 
-    if (!from || !to) {
+    // Поддержка обоих форматов: объект {lat,lon} и плоские поля from_lat/from_lon
+    let from = req.body.from;
+    let to   = req.body.to;
+
+    if (!from && req.body.from_lat && req.body.from_lon) {
+      from = { lat: parseFloat(req.body.from_lat), lon: parseFloat(req.body.from_lon) };
+    }
+    if (!to && req.body.to_lat && req.body.to_lon) {
+      to = { lat: parseFloat(req.body.to_lat), lon: parseFloat(req.body.to_lon) };
+    }
+
+    if (!from || !to || !from.lat || !from.lon || !to.lat || !to.lon) {
       return res.status(400).json({ error: 'From and to coordinates are required' });
     }
 
-    // Приоритет 1: GraphHopper API (самый точный для России)
-    const graphhopperKey = process.env.GRAPHHOPPER_API_KEY || 'a28d42ae-9850-4677-ac6f-edc7fa4ebd0b';
-    
+    // Координаты базы из настроек компании
+    const baseCoords = companyCache.base_coords || '55.5667,38.2000';
+    const [baseLat, baseLon] = baseCoords.split(',').map(Number);
+    const base = { lat: baseLat, lon: baseLon };
+
+    console.log(`🗺️  Route: База(${base.lat},${base.lon}) → Откуда(${from.lat},${from.lon}) → Куда(${to.lat},${to.lon}) → База`);
+
+    // Вспомогательная функция: получить расстояние между двумя точками через API
+    async function getSegmentDistance(pointA, pointB, provider) {
+      if (provider === 'graphhopper') {
+        const graphhopperKey = process.env.GRAPHHOPPER_API_KEY || 'a28d42ae-9850-4677-ac6f-edc7fa4ebd0b';
+        const ghUrl = `https://graphhopper.com/api/1/route?point=${pointA.lat},${pointA.lon}&point=${pointB.lat},${pointB.lon}&vehicle=car&locale=ru&key=${graphhopperKey}`;
+        const ghResp = await httpGet(ghUrl);
+        if (ghResp.status === 200 && ghResp.data.paths && ghResp.data.paths.length > 0) {
+          return ghResp.data.paths[0].distance / 1000;
+        }
+        throw new Error(`GraphHopper: ${ghResp.data.message || 'No routes found'}`);
+      }
+      if (provider === 'osrm') {
+        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${pointA.lon},${pointA.lat};${pointB.lon},${pointB.lat}?overview=false`;
+        const osrmResp = await httpGet(osrmUrl);
+        if (osrmResp.status === 200 && osrmResp.data.code === 'Ok') {
+          return osrmResp.data.routes[0].distance / 1000;
+        }
+        throw new Error(`OSRM: ${osrmResp.data.code}`);
+      }
+      // haversine
+      return calculateDistance(pointA.lat, pointA.lon, pointB.lat, pointB.lon);
+    }
+
+    // Три сегмента маршрута: База→Откуда, Откуда→Куда, Куда→База
+    const segments = [
+      { from: base, to: from,  label: 'База→Откуда' },
+      { from: from, to: to,    label: 'Откуда→Куда' },
+      { from: to,   to: base,  label: 'Куда→База'   },
+    ];
+
+    // ── Приоритет 1: GraphHopper (все три сегмента сразу через multi-point) ──
     try {
-      const graphhopperUrl = `https://graphhopper.com/api/1/route?point=${from.lat},${from.lon}&point=${to.lat},${to.lon}&vehicle=car&locale=ru&key=${graphhopperKey}`;
-      
-      console.log('🚗 Calculating route via GraphHopper...');
-      
-      const graphhopperResponse = await new Promise((resolve, reject) => {
-        https.get(graphhopperUrl, (res) => {
-          let data = '';
-          res.on('data', (chunk) => {
-            data += chunk;
-          });
-          res.on('end', () => {
-            try {
-              const jsonData = JSON.parse(data);
-              resolve({
-                ok: res.statusCode === 200,
-                status: res.statusCode,
-                data: jsonData
-              });
-            } catch (error) {
-              reject(error);
-            }
-          });
-        }).on('error', reject);
-      });
+      const graphhopperKey = process.env.GRAPHHOPPER_API_KEY || 'a28d42ae-9850-4677-ac6f-edc7fa4ebd0b';
+      const ghUrl = `https://graphhopper.com/api/1/route?point=${base.lat},${base.lon}&point=${from.lat},${from.lon}&point=${to.lat},${to.lon}&point=${base.lat},${base.lon}&vehicle=car&locale=ru&key=${graphhopperKey}`;
+      console.log('🚗 GraphHopper: маршрут из 4 точек (База→Откуда→Куда→База)...');
 
-      if (graphhopperResponse.ok && graphhopperResponse.data.paths && graphhopperResponse.data.paths.length > 0) {
-        const path = graphhopperResponse.data.paths[0];
-        const distanceMeters = path.distance;
-        const distanceKm = distanceMeters / 1000;
-        const durationMillis = path.time;
-        const durationMinutes = Math.round(durationMillis / 1000 / 60);
+      const ghResp = await httpGet(ghUrl);
 
-        console.log(`✅ GraphHopper: ${distanceKm.toFixed(2)} km, ${durationMinutes} min`);
-
+      if (ghResp.status === 200 && ghResp.data.paths && ghResp.data.paths.length > 0) {
+        const totalDistanceKm = ghResp.data.paths[0].distance / 1000;
+        const durationMinutes = Math.round(ghResp.data.paths[0].time / 1000 / 60);
+        // Отдельный запрос А→Б для отображения заказчику
+        let displayKm = totalDistanceKm;
+        try {
+          const ghUrlAB = `https://graphhopper.com/api/1/route?point=${from.lat},${from.lon}&point=${to.lat},${to.lon}&vehicle=car&locale=ru&key=${graphhopperKey}`;
+          const ghRespAB = await httpGet(ghUrlAB);
+          if (ghRespAB.status === 200 && ghRespAB.data.paths && ghRespAB.data.paths.length > 0) {
+            displayKm = ghRespAB.data.paths[0].distance / 1000;
+          }
+        } catch (_) { /* fallback to total */ }
+        console.log(`✅ GraphHopper total: ${totalDistanceKm.toFixed(2)} km (А→Б: ${displayKm.toFixed(2)} km), ${durationMinutes} min`);
         return res.json({
           success: true,
-          distance: Math.round(distanceKm * 100) / 100,
+          distance: Math.round(totalDistanceKm * 100) / 100,
+          distance_display: Math.round(displayKm * 100) / 100,
           duration: durationMinutes,
           unit: 'km',
           method: 'road',
-          provider: 'graphhopper'
+          provider: 'graphhopper',
+          route: 'base→from→to→base'
         });
       } else {
-        throw new Error(`GraphHopper error: ${graphhopperResponse.data.message || 'No routes found'}`);
+        throw new Error(`GraphHopper: ${ghResp.data.message || 'No routes found'}`);
       }
 
-    } catch (graphhopperError) {
-      console.error('❌ GraphHopper error:', graphhopperError.message);
-      console.log('⚠️ Trying OSRM fallback...');
-      
-      // Приоритет 2: OSRM API (бесплатный fallback)
+    } catch (ghError) {
+      console.error('❌ GraphHopper error:', ghError.message);
+      console.log('⚠️  Trying OSRM fallback...');
+
+      // ── Приоритет 2: OSRM (три сегмента суммируем) ────────────────────────
       try {
-        const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${from.lon},${from.lat};${to.lon},${to.lat}?overview=false`;
-        
-        console.log('🚗 Calculating route via OSRM...');
-        
-        const osrmResponse = await new Promise((resolve, reject) => {
-          https.get(osrmUrl, (res) => {
-            let data = '';
-            res.on('data', (chunk) => {
-              data += chunk;
-            });
-            res.on('end', () => {
-              try {
-                const jsonData = JSON.parse(data);
-                resolve({
-                  ok: res.statusCode === 200,
-                  status: res.statusCode,
-                  data: jsonData
-                });
-              } catch (error) {
-                reject(error);
-              }
-            });
-          }).on('error', reject);
-        });
-
-        if (osrmResponse.ok && osrmResponse.data.code === 'Ok') {
-          const distanceMeters = osrmResponse.data.routes[0].distance;
-          const distanceKm = distanceMeters / 1000;
-          const durationSeconds = osrmResponse.data.routes[0].duration;
-          const durationMinutes = Math.round(durationSeconds / 60);
-
-          console.log(`✅ OSRM fallback: ${distanceKm.toFixed(2)} km, ${durationMinutes} min`);
-
-          return res.json({
-            success: true,
-            distance: Math.round(distanceKm * 100) / 100,
-            duration: durationMinutes,
-            unit: 'km',
-            method: 'road',
-            provider: 'osrm',
-            fallback: true
-          });
-        } else {
-          throw new Error(`OSRM error: ${osrmResponse.data.code}`);
+        let totalKm = 0;
+        for (const seg of segments) {
+          const km = await getSegmentDistance(seg.from, seg.to, 'osrm');
+          console.log(`  OSRM ${seg.label}: ${km.toFixed(2)} km`);
+          totalKm += km;
         }
+        // Сегмент А→Б уже посчитан — это второй сегмент (index 1)
+        const displayKmOsrm = await getSegmentDistance(from, to, 'osrm').catch(() => totalKm);
+        console.log(`✅ OSRM total: ${totalKm.toFixed(2)} km (А→Б: ${displayKmOsrm.toFixed(2)} km)`);
+        return res.json({
+          success: true,
+          distance: Math.round(totalKm * 100) / 100,
+          distance_display: Math.round(displayKmOsrm * 100) / 100,
+          unit: 'km',
+          method: 'road',
+          provider: 'osrm',
+          route: 'base→from→to→base',
+          fallback: true
+        });
 
       } catch (osrmError) {
         console.error('❌ OSRM error:', osrmError.message);
-        console.log('⚠️ Using straight-line distance (Haversine)');
-        
-        // Приоритет 3: Расчет по прямой (последний fallback)
-        const distance = calculateDistance(
-          parseFloat(from.lat), 
-          parseFloat(from.lon), 
-          parseFloat(to.lat), 
-          parseFloat(to.lon)
-        );
+        console.log('⚠️  Using Haversine (straight-line)');
 
+        // ── Приоритет 3: Haversine (три сегмента суммируем) ───────────────
+        let totalKm = 0;
+        for (const seg of segments) {
+          const km = calculateDistance(seg.from.lat, seg.from.lon, seg.to.lat, seg.to.lon);
+          console.log(`  Haversine ${seg.label}: ${km.toFixed(2)} km`);
+          totalKm += km;
+        }
+        const displayKmHav = calculateDistance(from.lat, from.lon, to.lat, to.lon);
+        console.log(`✅ Haversine total: ${totalKm.toFixed(2)} km (А→Б: ${displayKmHav.toFixed(2)} km)`);
         return res.json({
           success: true,
-          distance: Math.round(distance * 100) / 100,
+          distance: Math.round(totalKm * 100) / 100,
+          distance_display: Math.round(displayKmHav * 100) / 100,
           unit: 'km',
           method: 'straight-line',
           provider: 'haversine',
+          route: 'base→from→to→base',
           fallback: true
         });
       }
@@ -1224,11 +1519,21 @@ function calculatePrice(data) {
   const fromRate = findCityRate(data.fromCity);
   let kmPrice = 0;
 
-  if (toRate && toRate.is_fixed_price) {
+  // Фикс применяется только если оба адреса в одном фиксированном городе
+  const bothInSameFixedCity = toRate && fromRate &&
+    toRate.is_fixed_price && fromRate.is_fixed_price &&
+    toRate.city_name === fromRate.city_name;
+
+  console.log(`💰 calcPrice: from="${data.fromCity?.slice(0,30)}" toRate=${toRate?.city_name||'null'} fromRate=${fromRate?.city_name||'null'} bothFixed=${bothInSameFixedCity} dist=${dist} perKm=${perKm}`);
+
+  if (bothInSameFixedCity) {
     kmPrice = parseFloat(toRate.value);
   } else {
     kmPrice = dist * perKm;
-    const applicableRate = toRate || fromRate;
+    // Коэффициент города применяем если один из адресов в городе с коэффициентом
+    const applicableRate = (toRate && !toRate.is_fixed_price ? toRate : null)
+                        || (fromRate && !fromRate.is_fixed_price ? fromRate : null);
+    console.log(`💰 applicableRate=${applicableRate?.city_name||'null'} type=${applicableRate?.rate_type||'null'} val=${applicableRate?.value||'null'}`);
     if (applicableRate && applicableRate.rate_type === 'percent') {
       kmPrice = kmPrice * (1 + parseFloat(applicableRate.value) / 100);
     } else if (applicableRate && applicableRate.rate_type === 'flat_km') {
@@ -1312,13 +1617,13 @@ app.get('/api/orders', async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
     const status = req.query.status || null;
+    const phone  = req.query.phone  || null;
 
-    let where = '';
-    let params = [];
-    if (status) {
-      where = 'WHERE o.status = $1';
-      params = [status];
-    }
+    const conditions = [];
+    const params = [];
+    if (status) { params.push(status); conditions.push(`o.status = $${params.length}`); }
+    if (phone)  { params.push(phone);  conditions.push(`o.phone = $${params.length}`); }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
     const ordersRes = await pool.query(`
       SELECT o.*, c.company_name
@@ -1374,6 +1679,10 @@ app.get('/api/pricing/public', async (req, res) => {
       floor_tiers:      floorTiersCache,
       city_rates:       cityRatesCache,
       company:          companyCache,
+      bonus: {
+        enabled: !!pricingCache.loyalty_enabled,
+        percent: pricingCache.loyalty_percent || 5
+      },
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1707,12 +2016,12 @@ app.get('/api/sheets/test-client', async (req, res) => {
 
 // Email test endpoint
 app.get('/api/email/test', async (req, res) => {
-  if (!resend) {
+  if (!resendManager) {
     return res.status(500).json({ error: 'Resend not initialized. Check RESEND_API_KEY in .env.local' });
   }
   const managerEmail = process.env.MANAGER_EMAIL || 'alexeyschulmin@gmail.com';
   try {
-    const { data, error } = await resend.emails.send({
+    const { data, error } = await resendManager.emails.send({
       from: 'Медицинский калькулятор <onboarding@resend.dev>',
       to: [managerEmail],
       subject: '✅ Тест email — Medical Calculator',
@@ -1726,6 +2035,93 @@ app.get('/api/email/test', async (req, res) => {
     res.json({ success: true, id: data.id, to: managerEmail });
   } catch (err) {
     console.error('❌ Test email exception:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── LOYALTY: получить баланс бонусов по телефону ───────────────────────────
+app.get('/api/loyalty/balance', async (req, res) => {
+  const { phone } = req.query;
+  if (!phone) return res.status(400).json({ error: 'phone required' });
+  if (!pool) return res.json({ phone, bonus_balance: 0, total_orders: 0 });
+  try {
+    const { rows } = await pool.query(
+      'SELECT bonus_balance, total_orders, total_spent FROM customers WHERE phone = $1',
+      [normalizePhone(phone)]
+    );
+    if (rows.length === 0) return res.json({ phone, bonus_balance: 0, total_orders: 0 });
+    res.json({ phone, ...rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── LOYALTY: список клиентов (для админки) ──────────────────────────────────
+app.get('/api/loyalty/customers', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  if (!pool) return res.json({ customers: [] });
+  try {
+    const limit  = parseInt(req.query.limit)  || 50;
+    const offset = parseInt(req.query.offset) || 0;
+    const { rows } = await pool.query(
+      'SELECT id, phone, bonus_balance, total_orders, total_spent, created_at FROM customers ORDER BY total_spent DESC LIMIT $1 OFFSET $2',
+      [limit, offset]
+    );
+    const countRes = await pool.query('SELECT COUNT(*) FROM customers');
+    res.json({ customers: rows, total: parseInt(countRes.rows[0].count) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── LOYALTY: ручная корректировка баланса ───────────────────────────────────
+app.post('/api/loyalty/adjust', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  const { phone, delta } = req.body;
+  if (!phone || delta === undefined) return res.status(400).json({ error: 'phone and delta required' });
+  if (!pool) return res.status(503).json({ error: 'DB not available' });
+  try {
+    const { rows } = await pool.query(`
+      INSERT INTO customers (phone, bonus_balance)
+      VALUES ($1, GREATEST(0, $2))
+      ON CONFLICT (phone) DO UPDATE
+        SET bonus_balance = GREATEST(0, customers.bonus_balance + $2),
+            updated_at = CURRENT_TIMESTAMP
+      RETURNING bonus_balance
+    `, [normalizePhone(phone), parseInt(delta)]);
+    res.json({ phone, bonus_balance: rows[0].bonus_balance });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── LOYALTY: настройки (GET) ─────────────────────────────────────────────────
+app.get('/api/loyalty/settings', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  res.json({
+    loyalty_enabled: pricingCache.loyalty_enabled || 0,
+    loyalty_percent: pricingCache.loyalty_percent || 5
+  });
+});
+
+// ─── LOYALTY: настройки (PUT) ─────────────────────────────────────────────────
+app.put('/api/loyalty/settings', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  const { loyalty_enabled, loyalty_percent } = req.body;
+  if (!pool) return res.status(503).json({ error: 'DB not available' });
+  try {
+    const enabled = loyalty_enabled ? 1 : 0;
+    const percent = Math.max(0, Math.min(100, parseFloat(loyalty_percent) || 5));
+    await pool.query(`INSERT INTO pricing_settings (key, value, label) VALUES ('loyalty_enabled',$1,'Система лояльности') ON CONFLICT (key) DO UPDATE SET value=$1`, [enabled]);
+    await pool.query(`INSERT INTO pricing_settings (key, value, label) VALUES ('loyalty_percent',$1,'Процент начисления бонусов') ON CONFLICT (key) DO UPDATE SET value=$1`, [percent]);
+    pricingCache.loyalty_enabled = enabled;
+    pricingCache.loyalty_percent = percent;
+    res.json({ success: true, loyalty_enabled: enabled, loyalty_percent: percent });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

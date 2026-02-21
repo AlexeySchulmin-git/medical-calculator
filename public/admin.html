@@ -4,135 +4,41 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin — Медицинский калькулятор</title>
-  <style>
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    :root{--bg:#0f172a;--surface:#1e293b;--surface2:#273549;--border:#334155;--accent:#3b82f6;--accent-h:#2563eb;--ok:#22c55e;--warn:#f59e0b;--err:#ef4444;--text:#f1f5f9;--muted:#94a3b8;--r:10px}
-    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
-    #loginScreen{display:flex;align-items:center;justify-content:center;min-height:100vh}
-    .login-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;width:360px}
-    .login-card h1{font-size:22px;margin-bottom:6px}
-    .login-card p{color:var(--muted);font-size:14px;margin-bottom:28px}
-    .fg{margin-bottom:16px}
-    .fg label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
-    .fg input{width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none;transition:border-color .2s}
-    .fg input:focus{border-color:var(--accent)}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 18px;border-radius:8px;border:none;cursor:pointer;font-size:14px;font-weight:500;transition:background .2s}
-    .btn-p{background:var(--accent);color:#fff;width:100%;justify-content:center}
-    .btn-p:hover{background:var(--accent-h)}
-    .btn-sm{padding:5px 12px;font-size:12px}
-    .btn-g{background:transparent;border:1px solid var(--border);color:var(--muted)}
-    .btn-g:hover{border-color:var(--accent);color:var(--accent)}
-    #loginErr{color:var(--err);font-size:13px;margin-top:10px;display:none}
-    #app{display:none;min-height:100vh}
-    .sidebar{position:fixed;top:0;left:0;width:220px;height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:24px 0}
-    .s-logo{padding:0 20px 24px;font-size:15px;font-weight:700;border-bottom:1px solid var(--border);margin-bottom:12px}
-    .s-logo span{color:var(--accent)}
-    .nav-item{display:flex;align-items:center;gap:10px;padding:10px 20px;color:var(--muted);cursor:pointer;font-size:14px;transition:background .15s,color .15s;border-left:3px solid transparent}
-    .nav-item:hover{background:var(--surface2);color:var(--text)}
-    .nav-item.active{background:var(--surface2);color:var(--accent);border-left-color:var(--accent)}
-    .nav-item svg{width:16px;height:16px;flex-shrink:0}
-    .s-footer{margin-top:auto;padding:16px 20px;border-top:1px solid var(--border)}
-    .s-footer .ak{font-size:11px;color:var(--muted);word-break:break-all}
-    .main{margin-left:220px;padding:32px}
-    .page{display:none}
-    .page.active{display:block}
-    .ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
-    .ph h2{font-size:22px;font-weight:700}
-    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px}
-    .sc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px}
-    .sc .sl{font-size:12px;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px}
-    .sc .sv{font-size:28px;font-weight:700}
-    .c-new{color:var(--accent)}.c-prog{color:var(--warn)}.c-done{color:var(--ok)}
-    .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
-    .ch{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
-    .ch h3{font-size:15px;font-weight:600}
-    .filters{display:flex;gap:8px}
-    .fb{padding:5px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:12px;cursor:pointer;transition:all .15s}
-    .fb.active,.fb:hover{background:var(--accent);border-color:var(--accent);color:#fff}
-    table{width:100%;border-collapse:collapse}
-    th{padding:12px 16px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
-    td{padding:13px 16px;font-size:13px;border-bottom:1px solid var(--border);vertical-align:top}
-    tr:last-child td{border-bottom:none}
-    tr:hover td{background:var(--surface2)}
-    .badge{display:inline-block;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:600}
-    .badge-new{background:#1e3a5f;color:#93c5fd}
-    .badge-in_progress{background:#451a03;color:#fcd34d}
-    .badge-completed{background:#14532d;color:#86efac}
-    .badge-cancelled{background:#450a0a;color:#fca5a5}
-    .on{font-weight:600;color:var(--accent);font-size:12px}
-    .om{color:var(--muted);font-size:12px;margin-top:2px}
-    .pag{display:flex;align-items:center;gap:8px;padding:16px 20px;border-top:1px solid var(--border)}
-    .pag span{font-size:13px;color:var(--muted);margin:0 8px}
-    .pg{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-    .pg2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
-    .pc{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px}
-    .pc label{display:block;font-size:12px;color:var(--muted);margin-bottom:8px}
-    .pc input{width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:18px;font-weight:700;outline:none;transition:border-color .2s}
-    .pc input:focus{border-color:var(--accent)}
-    .pc .unit{font-size:11px;color:var(--muted);margin-top:6px}
-    .pa{margin-top:20px;display:flex;gap:12px;align-items:center}
-    .btn-save{min-width:160px;max-width:220px}
-    #psm{font-size:13px;color:var(--ok);display:none}
-    .section{margin-bottom:0;padding:24px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);margin-bottom:16px}
-    .section-title{font-size:15px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px;padding-bottom:12px;border-bottom:1px solid var(--border)}
-    .section-title span{font-size:12px;color:var(--muted);font-weight:400}
-    .input-row{display:flex;gap:8px;align-items:flex-end}
-    .input-row .fg{flex:1;margin-bottom:0}
-    .fg-sm label{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
-    .fg-sm input,.fg-sm select{padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;width:100%}
-    .fg-sm input:focus,.fg-sm select:focus{border-color:var(--accent)}
-    .tier-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:8px;align-items:center;margin-bottom:8px}
-    .tier-row input{padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;width:100%}
-    .tier-row input:focus{border-color:var(--accent)}
-    .tier-row .tier-dir{font-size:11px;color:var(--muted);text-align:center;padding:8px 0}
-    .del-btn{background:#450a0a;border:none;color:#fca5a5;border-radius:6px;width:32px;height:32px;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
-    .del-btn:hover{background:var(--err);color:#fff}
-    .city-row{display:grid;grid-template-columns:1fr 120px 100px 80px 1fr 40px;gap:8px;align-items:center;margin-bottom:8px}
-    .city-row input,.city-row select{padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;outline:none;width:100%}
-    .city-row input:focus,.city-row select:focus{border-color:var(--accent)}
-    .col-header{font-size:11px;color:var(--muted);padding-bottom:4px}
-    .info-box{background:#1e3a5f;border:1px solid #2563eb;border-radius:8px;padding:12px 16px;font-size:13px;color:#93c5fd;margin-bottom:16px}
-    .mo{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:none;align-items:center;justify-content:center}
-    .mo.open{display:flex}
-    .modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;width:560px;max-height:85vh;overflow-y:auto;padding:28px}
-    .mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
-    .mh h3{font-size:17px;font-weight:700}
-    .mc{background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;line-height:1}
-    .mr{display:flex;gap:8px;margin-bottom:10px}
-    .ml{font-size:12px;color:var(--muted);width:140px;flex-shrink:0;padding-top:1px}
-    .mv{font-size:13px}
-    .md{border:none;border-top:1px solid var(--border);margin:16px 0}
-    .ss{padding:6px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;cursor:pointer}
-    .empty{padding:48px;text-align:center;color:var(--muted)}
-    .loader{padding:48px;text-align:center;color:var(--muted);font-size:13px}
-    #toast{position:fixed;bottom:24px;right:24px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 18px;font-size:13px;z-index:200;opacity:0;transition:opacity .3s;pointer-events:none}
-    #toast.show{opacity:1}
-    #toast.success{border-color:var(--ok);color:var(--ok)}
-    #toast.error{border-color:var(--err);color:var(--err)}
-  </style>
+  <link rel="stylesheet" href="admin.css">
 </head>
 <body>
 
 <div id="loginScreen">
   <div class="login-card">
-    <h1>🏥 Admin Panel</h1>
-    <p>Медицинский калькулятор</p>
+    <div class="login-logo">
+      <div class="icon">🏥</div>
+      <div class="lt"><h1>MedAdmin</h1><p>Медицинский калькулятор</p></div>
+    </div>
     <div class="fg"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="Введите API ключ" /></div>
-    <button class="btn btn-p" onclick="login()">Войти</button>
+    <button class="btn btn-p btn-full" onclick="login()">Войти</button>
     <div id="loginErr">Неверный API ключ</div>
   </div>
 </div>
 
 <div id="app">
   <div class="sidebar">
-    <div class="s-logo">🏥 <span>Med</span>Admin</div>
+    <div class="s-logo">
+      <div class="icon">🏥</div>
+      <div><div class="lname">MedAdmin</div><div class="lsub">Панель управления</div></div>
+    </div>
+    <div class="nav-section">Основное</div>
     <div class="nav-item active" onclick="showPage('orders')" id="nav-orders">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
       Заявки
     </div>
+    <div class="nav-section">Настройки</div>
     <div class="nav-item" onclick="showPage('pricing')" id="nav-pricing">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
       Цены
+    </div>
+    <div class="nav-item" onclick="showPage('loyalty')" id="nav-loyalty">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"/></svg>
+      Лояльность
     </div>
     <div class="nav-item" onclick="showPage('integrations')" id="nav-integrations">
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
@@ -140,18 +46,18 @@
     </div>
     <div class="s-footer">
       <div class="ak" id="akDisplay"></div>
-      <button class="btn btn-g btn-sm" style="margin-top:8px;width:100%" onclick="logout()">Выйти</button>
+      <button class="btn btn-g btn-sm btn-full" onclick="logout()">Выйти</button>
     </div>
   </div>
 
   <div class="main">
     <div class="page active" id="page-orders">
-      <div class="ph"><h2>Заявки</h2><button class="btn btn-g btn-sm" onclick="loadOrders()">↻ Обновить</button></div>
+      <div class="ph"><div><h2>Заявки</h2><div class="ph-sub">Управление входящими заявками</div></div><button class="btn btn-g btn-sm" onclick="loadOrders()">↻ Обновить</button></div>
       <div class="stats">
-        <div class="sc"><div class="sl">Всего</div><div class="sv" id="st-total">—</div></div>
-        <div class="sc"><div class="sl">Новые</div><div class="sv c-new" id="st-new">—</div></div>
-        <div class="sc"><div class="sl">В работе</div><div class="sv c-prog" id="st-prog">—</div></div>
-        <div class="sc"><div class="sl">Завершены</div><div class="sv c-done" id="st-done">—</div></div>
+        <div class="sc"><div class="sl">📋 Всего заявок</div><div class="sv" id="st-total">—</div></div>
+        <div class="sc"><div class="sl">🔵 Новые</div><div class="sv c-new" id="st-new">—</div></div>
+        <div class="sc"><div class="sl">🟡 В работе</div><div class="sv c-prog" id="st-prog">—</div></div>
+        <div class="sc"><div class="sl">🟢 Завершены</div><div class="sv c-done" id="st-done">—</div></div>
       </div>
       <div class="card">
         <div class="ch">
@@ -174,7 +80,7 @@
     </div>
 
     <div class="page" id="page-pricing">
-      <div class="ph"><h2>Настройки цен</h2></div>
+      <div class="ph"><div><h2>Настройки цен</h2><div class="ph-sub">Тарифы, коэффициенты и городские ставки</div></div></div>
 
       <!-- 1. Настройки компании -->
       <div class="section">
@@ -237,7 +143,7 @@
         <div class="pg2">
           <div class="pc">
             <label>Тип надбавки</label>
-            <select id="p_round_trip_type" onchange="updateRtHint()" style="width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;outline:none">
+            <select id="p_round_trip_type" onchange="updateRtHint()">
               <option value="0">Коэффициент %</option>
               <option value="1">Фиксированная сумма ₽</option>
             </select>
@@ -306,9 +212,51 @@
 
     </div>
 
+    <!-- Страница Лояльность -->
+    <div class="page" id="page-loyalty">
+      <div class="ph"><div><h2>Система лояльности</h2><div class="ph-sub">Бонусы за повторные заказы</div></div></div>
+
+      <div class="section">
+        <div class="section-title">⭐ Настройки бонусной программы</div>
+        <div class="info-box">При каждом заказе клиент получает бонусные баллы. Баллы накапливаются автоматически по номеру телефона. 1 балл = 1 рубль.</div>
+        <div class="pg2">
+          <div class="pc">
+            <label>Система лояльности</label>
+            <select id="l_enabled">
+              <option value="0">Выключена</option>
+              <option value="1">Включена</option>
+            </select>
+            <div class="unit">При выключении бонусы не начисляются</div>
+          </div>
+          <div class="pc">
+            <label>Процент начисления</label>
+            <input type="number" id="l_percent" min="0" max="100" step="0.5">
+            <div class="unit">% от суммы заказа. Напр.: 5 = 5% от 4500₽ = 225 баллов</div>
+          </div>
+        </div>
+        <div class="pa">
+          <button class="btn btn-p btn-sm btn-save" onclick="saveLoyaltySettings()">Сохранить настройки</button>
+          <span id="lsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">👥 Клиенты <span id="lc-count"></span></div>
+        <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
+          <div class="sc"><div class="sl">👥 Всего клиентов</div><div class="sv" id="lc-total">—</div></div>
+          <div class="sc"><div class="sl">⭐ Баллов выдано</div><div class="sv c-new" id="lc-bonus">—</div></div>
+          <div class="sc"><div class="sl">💰 Оборот</div><div class="sv c-done" id="lc-spent">—</div></div>
+        </div>
+        <div class="card">
+          <div class="ch"><h3>Список клиентов</h3><button class="btn btn-g btn-sm" onclick="loadLoyaltyCustomers()">↻ Обновить</button></div>
+          <div id="loyaltyCustomersWrap"><div class="loader">Загрузка...</div></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Страница Интеграции -->
     <div class="page" id="page-integrations">
-      <div class="ph"><h2>Интеграции</h2></div>
+      <div class="ph"><div><h2>Интеграции</h2><div class="ph-sub">Telegram, Google Sheets и другие сервисы</div></div></div>
 
       <!-- Telegram -->
       <div class="section">
@@ -317,26 +265,26 @@
           Получайте уведомления о новых заявках прямо в Telegram. Чтобы подключиться:
           <ol style="margin:8px 0 0 16px;line-height:1.8">
             <li>Откройте Telegram и найдите бота: <strong id="tgBotLink">@...загрузка...</strong></li>
-            <li>Отправьте боту команду: <code style="background:var(--bg);padding:2px 6px;border-radius:4px">/start <span id="tgApiKeyHint" style="color:var(--accent)">ВАШ_API_КЛЮЧ</span></code></li>
+            <li>Отправьте боту команду: <code style="background:#dbeafe;padding:2px 6px;border-radius:4px">/start <span id="tgApiKeyHint" style="color:var(--accent)">ВАШ_API_КЛЮЧ</span></code></li>
             <li>Бот подтвердит подключение и уведомления начнут приходить автоматически</li>
           </ol>
         </div>
         <div class="pg2" style="margin-top:16px">
           <div class="pc">
             <label>Статус Telegram</label>
-            <div id="tgStatus" style="font-size:14px;padding:10px 0;color:var(--muted)">Загрузка...</div>
+            <div id="tgStatus" style="font-size:14px;padding:10px 0;color:var(--muted2)">Загрузка...</div>
             <div class="unit">Подключается через бота или вводится вручную</div>
           </div>
           <div class="pc">
             <label>Ваш Chat ID</label>
-            <input type="text" id="i_telegram_chat_id" placeholder="Например: 123456789" style="font-size:14px;font-weight:400">
+            <input type="text" id="i_telegram_chat_id" placeholder="Например: 123456789">
             <div class="unit">Узнать свой Chat ID: напишите боту <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent)">@userinfobot</a> — он ответит вашим ID</div>
           </div>
         </div>
         <div class="pa">
           <button class="btn btn-p btn-sm btn-save" onclick="saveTelegramChatId()">&#128190; Сохранить Chat ID</button>
           <button class="btn btn-g btn-sm btn-save" onclick="testTelegram()">&#9993; Отправить тест</button>
-          <button class="btn btn-sm btn-save" onclick="disconnectTelegram()" style="background:transparent;border:1px solid var(--err);color:var(--err)">&#10005; Отключить</button>
+          <button class="btn btn-sm btn-save btn-danger" onclick="disconnectTelegram()">&#10005; Отключить</button>
           <span id="tgsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span>
         </div>
       </div>
@@ -355,12 +303,12 @@
         <div class="pg2" style="margin-top:16px">
           <div class="pc">
             <label>ID Google Таблицы</label>
-            <input type="text" id="i_spreadsheet_id" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" style="font-size:13px;font-weight:400">
+            <input type="text" id="i_spreadsheet_id" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms">
             <div class="unit">Из URL: docs.google.com/spreadsheets/d/<strong>вот_это_ID</strong>/edit</div>
           </div>
           <div class="pc">
             <label>Название листа</label>
-            <input type="text" id="i_sheet_name" placeholder="Заявки" value="Заявки" style="font-size:14px;font-weight:400">
+            <input type="text" id="i_sheet_name" placeholder="Заявки" value="Заявки">
             <div class="unit">Название листа в таблице (по умолчанию: «Заявки»)</div>
           </div>
         </div>
@@ -378,7 +326,7 @@
 
 <div class="mo" id="orderModal" onclick="closeModal(event)">
   <div class="modal">
-    <div class="mh"><h3 id="modalTitle">Заявка</h3><button class="mc" onclick="document.getElementById('orderModal').classList.remove('open')">×</button></div>
+    <div class="mh"><h3 id="modalTitle">Заявка</h3><button class="mc" onclick="document.getElementById('orderModal').classList.remove('open')">✕</button></div>
     <div id="modalBody"></div>
   </div>
 </div>
@@ -397,7 +345,10 @@ function showApp(key) {
   document.getElementById('app').style.display = 'block';
   document.getElementById('akDisplay').textContent = key.slice(0,8)+'...';
   document.getElementById('tgApiKeyHint').textContent = key;
-  loadOrders(); loadAllPricing(); loadIntegrations();
+  loadOrders(); loadAllPricing(); loadIntegrations(); loadLoyaltySettings();
+  // Восстанавливаем последнюю вкладку
+  const lastPage = sessionStorage.getItem('adminPage') || 'orders';
+  showPage(lastPage);
 }
 
 function login() {
@@ -412,10 +363,20 @@ document.getElementById('apiKeyInput').addEventListener('keydown', e => { if(e.k
 
 // Восстанавливаем сессию при обновлении страницы
 if (apiKey) {
+  // Сразу скрываем окно входа, показываем админку
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  
   fetch(`${API}/api/orders?limit=1`, {headers:{'x-api-key':apiKey}})
     .then(r => { if(r.status===401) throw new Error(); return r.json(); })
     .then(() => showApp(apiKey))
-    .catch(() => { sessionStorage.removeItem('adminApiKey'); apiKey = ''; });
+    .catch(() => { 
+      sessionStorage.removeItem('adminApiKey'); 
+      apiKey = ''; 
+      // Если ключ невалиден — показываем окно входа
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('loginScreen').style.display = 'flex';
+    });
 }
 
 function logout() {
@@ -431,6 +392,112 @@ function showPage(name) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById('page-'+name).classList.add('active');
   document.getElementById('nav-'+name).classList.add('active');
+  sessionStorage.setItem('adminPage', name);
+  if (name === 'loyalty') loadLoyaltyCustomers();
+}
+
+// ── PHONE HELPERS ─────────────────────────────────────────────────────────────
+function normalizePhone(raw) {
+  if (!raw) return '';
+  const d = raw.replace(/\D/g, '');
+  if (d.length === 10) return '7' + d;
+  if (d.length === 11) return d;
+  return d;
+}
+
+function formatPhone(raw) {
+  const d = normalizePhone(raw);
+  if (d.length !== 11) return raw; // не можем форматировать — возвращаем как есть
+  return `+${d[0]} (${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7,9)}-${d.slice(9,11)}`;
+}
+
+// ── LOYALTY ──────────────────────────────────────────────────────────────────
+function loadLoyaltySettings() {
+  fetch(`${API}/api/loyalty/settings`, {headers:{'x-api-key':apiKey}})
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('l_enabled').value = d.loyalty_enabled || 0;
+      document.getElementById('l_percent').value = d.loyalty_percent || 5;
+    }).catch(() => {});
+}
+
+function saveLoyaltySettings() {
+  const enabled = parseInt(document.getElementById('l_enabled').value);
+  const percent = parseFloat(document.getElementById('l_percent').value);
+  fetch(`${API}/api/loyalty/settings`, {
+    method: 'PUT',
+    headers: {'x-api-key': apiKey, 'Content-Type': 'application/json'},
+    body: JSON.stringify({ loyalty_enabled: enabled, loyalty_percent: percent })
+  }).then(r => r.json()).then(d => {
+    if (d.success) showToast('✓ Настройки сохранены', 'success');
+    else showToast(d.error || 'Ошибка', 'error');
+  }).catch(e => showToast(e.message, 'error'));
+}
+
+function loadLoyaltyCustomers(highlightPhone) {
+  const wrap = document.getElementById('loyaltyCustomersWrap');
+  wrap.innerHTML = '<div class="loader">Загрузка...</div>';
+  fetch(`${API}/api/loyalty/customers`, {headers:{'x-api-key':apiKey}})
+    .then(r => r.json())
+    .then(data => {
+      const customers = data.customers || [];
+      const total = data.total || 0;
+      document.getElementById('lc-total').textContent = total;
+      // Считаем агрегаты
+      const totalBonus = customers.reduce((s, c) => s + (parseInt(c.bonus_balance) || 0), 0);
+      const totalSpent = customers.reduce((s, c) => s + (parseFloat(c.total_spent) || 0), 0);
+      document.getElementById('lc-bonus').textContent = totalBonus.toLocaleString('ru');
+      document.getElementById('lc-spent').textContent = Math.round(totalSpent).toLocaleString('ru') + '₽';
+      document.getElementById('lc-count').textContent = total ? `— ${total}` : '';
+      if (!customers.length) { wrap.innerHTML = '<div class="empty">Клиентов пока нет</div>'; return; }
+      wrap.innerHTML = `<table id="loyaltyTable">
+        <thead><tr>
+          <th>Телефон</th>
+          <th>Баланс баллов</th>
+          <th>Заказов</th>
+          <th>Общая сумма</th>
+          <th>Коррекция</th>
+        </tr></thead>
+        <tbody>${customers.map(c => `
+          <tr>
+            <td><div class="on"><a href="#" onclick="goToOrders('${c.phone}');return false;" style="color:var(--accent);text-decoration:none">${formatPhone(c.phone)}</a></div></td>
+            <td><span class="badge badge-new">⭐ ${parseInt(c.bonus_balance).toLocaleString('ru')}</span></td>
+            <td>${c.total_orders}</td>
+            <td>${Math.round(parseFloat(c.total_spent)).toLocaleString('ru')}₽</td>
+            <td>
+              <div style="display:flex;gap:6px;align-items:center">
+                <input type="number" id="adj_${c.id}" placeholder="+/-" style="width:80px;padding:5px 8px;border:1.5px solid var(--border);border-radius:8px;font-size:12px;font-family:inherit;outline:none">
+                <button class="btn btn-g btn-sm" onclick="adjustBonus('${c.phone}', document.getElementById('adj_${c.id}').value)">✓</button>
+              </div>
+            </td>
+          </tr>`).join('')}
+        </tbody></table>`;
+      // Подсвечиваем клиента если пришли из заявки
+      if (highlightPhone) {
+        setTimeout(() => {
+          const rows = document.querySelectorAll('#loyaltyTable tbody tr');
+          rows.forEach(row => {
+            if (row.textContent.includes(highlightPhone)) {
+              row.style.background = '#fef9c3';
+              row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          });
+        }, 100);
+      }
+    }).catch(e => { wrap.innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`; });
+}
+
+function adjustBonus(phone, delta) {
+  const d = parseInt(delta);
+  if (isNaN(d) || d === 0) return showToast('Укажите значение (+/-)', 'error');
+  fetch(`${API}/api/loyalty/adjust`, {
+    method: 'POST',
+    headers: {'x-api-key': apiKey, 'Content-Type': 'application/json'},
+    body: JSON.stringify({ phone, delta: d })
+  }).then(r => r.json()).then(res => {
+    if (res.bonus_balance !== undefined) { showToast(`Баланс: ${res.bonus_balance} баллов`, 'success'); loadLoyaltyCustomers(); }
+    else showToast(res.error || 'Ошибка', 'error');
+  }).catch(e => showToast(e.message, 'error'));
 }
 
 function loadOrders(page) {
@@ -465,7 +532,7 @@ function renderTable(orders) {
   const rows = orders.map(o => `
     <tr style="cursor:pointer" onclick='openOrder(${JSON.stringify(JSON.stringify(o))})'>
       <td><div class="on">${o.order_number||'—'}</div><div class="om">${fmtDate(o.created_at)}</div></td>
-      <td><div style="font-weight:500">${o.phone}</div>${o.customer_email?`<div class="om">${o.customer_email}</div>`:''}</td>
+      <td><div style="font-weight:500">${formatPhone(o.phone)}</div>${o.customer_email?`<div class="om">${o.customer_email}</div>`:''}</td>
       <td><div>${trunc(o.from_address,28)}</div><div class="om">→ ${trunc(o.to_address,28)}</div></td>
       <td>${o.distance?o.distance+' км':'—'}</td>
       <td><strong>${o.price?Number(o.price).toLocaleString('ru-RU')+' ₽':'—'}</strong></td>
@@ -500,14 +567,19 @@ function openOrder(jsonStr) {
       </select>
     </div>
     <hr class="md">
-    ${r('Телефон',o.phone)}${r('Email',o.customer_email)}${r('Имя',o.customer_name)}
+    ${o.phone ? `<div class="mr"><span class="ml">Телефон</span><span class="mv"><a href="#" onclick="goToClient('${o.phone}');return false;" style="color:var(--accent);text-decoration:none;font-weight:600">${formatPhone(o.phone)}</a></span></div>` : ''}${r('Email',o.customer_email)}${r('Имя',o.customer_name)}
     <hr class="md">
     ${r('Откуда',o.from_address)}${r('Куда',o.to_address)}${r('Расстояние',o.distance?o.distance+' км':null)}
     <hr class="md">
     ${r('Стоимость',o.price?Number(o.price).toLocaleString('ru-RU')+' ₽':null)}
-    ${r('Вес',o.weight?o.weight+' кг':null)}${r('Диагноз',o.diagnosis)}
-    ${o.floor_num>1?r('Этаж',o.floor_num+(o.no_elevator?' (без лифта)':'')):'' }
-    ${o.medical_escort?r('Мед. сопровождение','✓'):''}${o.round_trip?r('Туда-обратно','✓'):''}
+    ${r('Вес',o.weight?o.weight+' кг':null)}
+    ${r('Диагноз',o.diagnosis)}
+    ${o.floor_descent !== undefined && o.floor_descent !== null ? r('⬇️ Спуск без лифта', o.floor_descent === 0 ? 'Не нужен' : o.floor_descent + ' эт.') : ''}
+    ${o.floor_ascent !== undefined && o.floor_ascent !== null ? r('⬆️ Подъём без лифта', o.floor_ascent === 0 ? 'Не нужен' : o.floor_ascent + ' эт.') : ''}
+    ${o.medical_escort?r('Мед. сопровождение','✓'):''}
+    ${o.need_oxygen?r('Кислород','✓'):''}
+    ${o.escort_count > 0 ? r('Сопровождение', o.escort_count + ' чел.') : ''}
+    ${o.round_trip?r('Туда-обратно','✓'):''}
     ${r('Оплата',o.payment_method)}${r('Комментарий',o.comment)}
     <hr class="md">
     ${r('Дата заявки',fmtDate(o.created_at))}
@@ -516,6 +588,35 @@ function openOrder(jsonStr) {
 }
 
 function closeModal(e) { if(e.target.id==='orderModal') document.getElementById('orderModal').classList.remove('open'); }
+
+function goToClient(phone) {
+  document.getElementById('orderModal').classList.remove('open');
+  showPage('loyalty');
+  // Подсвечиваем нужного клиента после загрузки
+  loadLoyaltyCustomers(phone);
+}
+
+function goToOrders(phone) {
+  showPage('orders');
+  curFilter = null; curPage = 1;
+  document.querySelectorAll('.fb').forEach(b => b.classList.remove('active'));
+  document.querySelector('.fb').classList.add('active');
+  // Загружаем заявки с фильтром по телефону
+  loadOrdersByPhone(phone);
+}
+
+function loadOrdersByPhone(phone) {
+  document.getElementById('ordersWrap').innerHTML = '<div class="loader">Загрузка...</div>';
+  fetch(`${API}/api/orders?page=1&limit=100&phone=${encodeURIComponent(phone)}`, {headers:{'x-api-key':apiKey}})
+    .then(r => r.json())
+    .then(data => {
+      renderTable(data.orders);
+      renderPag(data.total);
+      const ph = document.querySelector('.ph h2');
+      if (ph) ph.textContent = `Заявки: ${phone}`;
+    })
+    .catch(e => { document.getElementById('ordersWrap').innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`; });
+}
 
 function updateStatus(id, status) {
   fetch(`${API}/api/orders/${id}`, {
