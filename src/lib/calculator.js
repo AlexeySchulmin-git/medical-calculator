@@ -1,6 +1,6 @@
 // Расчёт стоимости медицинской перевозки
 
-function calculatePrice({ distance, weight, floor, noElevator, roundTrip, medEscort, bonusUsed, settings }) {
+export function calculatePrice({ distance, weight, floor, noElevator, roundTrip, medEscort, bonusUsed, settings }) {
   let price = settings.pricing.base;
   
   // Расстояние
@@ -46,7 +46,7 @@ function calculatePrice({ distance, weight, floor, noElevator, roundTrip, medEsc
 }
 
 // Расчёт расстояния по формуле Haversine
-function calculateDistance(lat1, lon1, lat2, lon2) {
+export function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Радиус Земли в км
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
@@ -66,7 +66,7 @@ function toRad(deg) {
 }
 
 // Валидация полей формы
-function validateForm(data, settings) {
+export function validateForm(data, settings) {
   const errors = {};
   
   // Проверка обязательных полей
@@ -102,8 +102,4 @@ function validateForm(data, settings) {
   };
 }
 
-module.exports = {
-  calculatePrice,
-  calculateDistance,
-  validateForm
-};
+
