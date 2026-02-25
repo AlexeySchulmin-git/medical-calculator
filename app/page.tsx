@@ -1,9 +1,12 @@
+import React from "react";
 import Script from "next/script";
+
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003";
 
 export default function Home() {
   return (
     <>
-      <Script src="/widget-calculator.js" strategy="beforeInteractive" />
+      <Script src="/widget-calculator.js" strategy="afterInteractive" />
 
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
         <div className="container mx-auto px-4 py-12">
@@ -20,10 +23,10 @@ export default function Home() {
 
           {/* Калькулятор */}
           <div className="max-w-2xl mx-auto mb-16">
-            <medical-calculator
-              api-url="http://localhost:3003"
-              api-key="test-api-key-12345"
-            />
+            {React.createElement("medical-calculator", {
+              "api-url": apiUrl,
+              "api-key": "test-api-key-12345",
+            })}
           </div>
 
           {/* Преимущества */}
