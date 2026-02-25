@@ -1,5 +1,5 @@
 # Карта кодовой базы Medical Calculator
-*Обновлено вручную: 2026-02-21. Следующее обновление: `npm run index` + ручная правка описаний.*
+*Обновлено вручную: 2026-02-22. Следующее обновление: `npm run index` + ручная правка описаний.*
 
 ## 📊 СТАТИСТИКА
 - **Express API эндпоинтов**: 18+ (medical-api-server.cjs)
@@ -26,6 +26,10 @@
 | `getFloorPrice(dir, weight)` | Тариф этажа по направлению и весу из `floorTiersCache` |
 | `loadPricingSettings()` | Загрузка всех тарифов из БД в кэш при старте |
 | `initializeDatabase()` | Создание таблиц и seed-данных при первом запуске |
+| `sendOrderEmails(order)` | Email-уведомления менеджеру и клиенту (Resend) |
+| `sendTelegramNotification(order, chatId)` | Telegram-уведомление о заявке |
+| `appendOrderToSheet(order, spreadsheetId)` | Добавление новой заявки в Google Sheets |
+| `upsertOrderInSheet(order, spreadsheetId)` | Обновление/добавление заявки в Google Sheets при редактировании |
 
 ---
 
@@ -48,9 +52,17 @@
 | `src/widget/Calculator.jsx` | Главный компонент формы калькулятора | `calculateDistance()` → сервер, `calculatePrice()` → `/api/calculate-price` |
 | `src/widget/index.jsx` | Регистрация `<medical-calculator>` custom element, загрузка конфига | `customElements.define('medical-calculator', ...)` |
 | `src/widget/api.js` | HTTP-клиент виджета, добавляет `x-api-key` из `data-key` атрибута | `fetch()`, `getConfig()`, `createOrder()`, `getBonusBalance()` |
+
+---
+
+### 🔵 Админ и Суперадмин панели (public/) — управление заказами, клиентами и интеграциями
+
+| Файл | Что делает | Ключевые функции |
+|------|------------|-----------------|
+| `public/admin.html` | Интерфейс админ-панели клиента | Заказы, тарифы, лояльность, Telegram/Sheets интеграции |
+| `public/superadmin.html` | Интерфейс суперадмин панели | Клиенты, статистика, онбординг (`signup_requests`), админы |
+| `public/superadmin.js` | JavaScript логика суперадмин панели | CRUD клиенты, лицензии, API ключи, фильтры, онбординг + пагинация |
 | `src/widget/styles.css` | CSS виджета с переменными для кастомизации | CSS custom properties |
-| `src/widget/Calculator-mock.jsx` | Mock-версия для разработки без сервера | — |
-| `src/widget/index-mock.jsx` | Точка входа mock-версии | — |
 
 ---
 
@@ -84,7 +96,7 @@
 
 | Файл | Что делает |
 |------|------------|
-| `widget-build.js` | ESBuild: собирает `src/widget/` → `public/widget-calculator.js` |
+| `widget-build-prod.js` | ESBuild: собирает `src/widget/index.jsx` → `public/widget-calculator.js` |
 | `beads-api-server.cjs` | Отдельный Express сервер для beads API |
 | `start.bat` | Запускает Next.js + Express одновременно |
 | `scripts/update-codeindex-simple.js` | Авто-сканер файлов для обновления этого файла (`npm run index`) |
@@ -100,7 +112,8 @@
 | Метод | Путь | Назначение |
 |-------|------|------------|
 | `POST` | `/api/calculate-price` | **Предварительный расчёт цены** без создания заказа (для виджета) |
-| `POST` | `/api/orders` | Создание заказа: расчёт цены + сохранение в PostgreSQL + уведомления |
+| `POST` | `/api/orders` | Создание заказа: расчёт цены + сохранение в PostgreSQL + уведомления (бонусы списываются сразу, начисление откладывается до `completed`) |
+| `PATCH` | `/api/orders/:id` | Обновление статуса заказа (admin), при переходе в `completed` применяется отложенное начисление бонусов |
 | `POST` | `/api/dadata/distance` | Расстояние маршрута **База→Откуда→Куда→База** (GraphHopper→OSRM→Haversine) |
 | `POST` | `/api/dadata/suggest` | Автодополнение адресов через DaData |
 | `POST` | `/api/dadata/clean` | Автоисправление адресов через DaData Clean API |
@@ -117,7 +130,25 @@
 | `GET`  | `/api/pricing/public` | Публичные тарифы без API ключа |
 | `GET`  | `/api/company` | Настройки компании (база, координаты) |
 | `PUT`  | `/api/company` | Обновление настроек компании |
+| `GET`  | `/api/loyalty/settings` | Получить настройки лояльности клиента (`enabled`, `% начисления`, `% лимита списания`) |
+| `PUT`  | `/api/loyalty/settings` | Сохранить настройки лояльности клиента |
 | `POST` | `/api/telegram/webhook` | Вебхук для Telegram бота |
+
+### 🔐 Суперадмин API эндпоинты (JWT авторизация)
+
+| Метод | Путь | Назначение |
+|-------|------|------------|
+| `POST` | `/api/superadmin/auth` | Авторизация суперадмина (JWT) |
+| `GET`  | `/api/superadmin/clients` | Список клиентов со статистикой заказов |
+| `POST` | `/api/superadmin/clients` | Создание нового клиента |
+| `PUT`  | `/api/superadmin/clients/:id` | Обновление данных клиента |
+| `DELETE` | `/api/superadmin/clients/:id` | Удаление клиента |
+| `POST` | `/api/superadmin/clients/:id/regenerate-key` | Генерация нового API ключа |
+| `GET`  | `/api/superadmin/stats` | Общая статистика системы |
+| `GET`  | `/api/superadmin/signup-requests` | Список заявок онбординга (`signup_requests`) с фильтром по статусу и пагинацией |
+| `GET`  | `/api/superadmin/admins` | Список суперадминов |
+| `POST` | `/api/superadmin/admins` | Создание суперадмина |
+| `DELETE` | `/api/superadmin/admins/:id` | Удаление суперадмина |
 | `GET`  | `/api/integrations` | Настройки интеграций клиента |
 | `PUT`  | `/api/integrations` | Сохранение настроек интеграций |
 | `GET`  | `/api/loyalty/balance` | Баланс бонусов по телефону |
@@ -129,6 +160,19 @@
 
 ---
 
+## 🔔 Где искать уведомления (быстрый ориентир)
+
+| Канал | Где реализовано | Когда вызывается |
+|-------|------------------|------------------|
+| Email (Resend) | `medical-api-server.cjs::sendOrderEmails()` | `POST /api/orders` (создание заявки) |
+| Telegram | `medical-api-server.cjs::sendTelegramNotification()` | `POST /api/orders` (создание заявки) |
+| Google Sheets (insert) | `medical-api-server.cjs::appendOrderToSheet()` | `POST /api/orders` (создание заявки) |
+| Google Sheets (sync/update) | `medical-api-server.cjs::upsertOrderInSheet()` | `PATCH /api/orders/:id` (редактирование в админке) |
+
+> Для поля даты поездки искать по ключу `trip_datetime` в `medical-api-server.cjs` и `public/admin.html` / `public/widget-calculator.js`.
+
+---
+
 ## 🗄️ Структура PostgreSQL БД (medical-api-server.cjs)
 
 | Таблица | Назначение | Ключевые поля |
@@ -137,9 +181,9 @@
 | `pricing_city_rates` | Городские тарифы | `city_name`, `rate_type` (percent/fixed/flat_km), `value`, `is_fixed_price` |
 | `pricing_floor_tiers` | Тарифы этажей по весу | `direction` (descent/ascent), `weight_from`, `weight_to`, `price_per_floor` |
 | `company_settings` | Настройки компании | `base_address`, `base_coords` (координаты базы для маршрута) |
-| `orders` | Заказы | `from_address`, `to_address`, `distance`, `price`, `status` |
-| `clients` | Клиенты (API ключи) | `api_key`, `telegram_chat_id`, `google_spreadsheet_id` |
-| `customers` | Программа лояльности | `phone` (нормализованный, 11 цифр), `bonus_balance`, `total_orders`, `total_spent` |
+| `orders` | Заказы | `client_id`, `from_address`, `to_address`, `distance`, `price`, `status`, `bonus_used`, `bonus_earned`, `bonus_applied`, `bonus_applied_at` |
+| `clients` | Клиенты (API ключи + лицензии) | `api_key`, `license_type`, `trial_until`, `paid_until`, `allowed_domains`, `company_name`, `contact_email` |
+| `customers` | Программа лояльности | `client_id`, `phone` (нормализованный, 11 цифр), `bonus_balance`, `total_orders`, `total_spent` |
 
 ---
 
@@ -163,6 +207,13 @@ medical-api-server.cjs
   ├── Telegram Bot API
   └── DaData API (suggest)
 
+Лояльность (актуальный поток):
+  1) Виджет получает `bonus.max_usage_percent` из `GET /api/pricing/public`
+  2) При `POST /api/orders` списание бонусов ограничивается формулой:
+     `min(запрошено, баланс, floor(баланс * max_usage_percent / 100), цена)`
+  3) Начисление не применяется сразу: сохраняется в `orders.bonus_earned`
+  4) При `PATCH /api/orders/:id` и переходе в `completed` начисление применяется в `customers`
+
 Next.js (порт 3000) — в основном legacy/admin
   ├── src/app/api/dadata/suggest → DaData API
   ├── src/app/api/dadata/distance → src/lib/calculator.js::calculateDistance() (только 2 точки!)
@@ -178,7 +229,7 @@ Next.js (порт 3000) — в основном legacy/admin
 start.bat          # Next.js :3000 + Express :3003
 npm run dev        # только Next.js
 npm run server     # только Express
-node widget-build.js  # собрать виджет → public/widget-calculator.js
+npm run widget:build  # собрать виджет → public/widget-calculator.js
 npm run index      # авто-обновить таблицу модулей (потом исправить описания вручную!)
 ```
 
@@ -205,4 +256,4 @@ npm run index      # авто-обновить таблицу модулей (п
 1. **Legacy Next.js routes**: `src/app/api/` содержит 8 эндпоинтов, которые не используются основным приложением. Весь функционал перенесён в Express сервер.
 2. **Legacy библиотеки**: `src/lib/calculator.js`, `src/lib/db.js`, `src/lib/notifications.js` — не используются основным сервером, только для совместимости со старыми Next.js routes.
 3. **Дублирование функционала**: Два расчёта расстояния (Next.js vs Express), два `calculatePrice`, два способа отправки email.
-4. **Сборка виджета**: `widget-build.js` собирает `widget-mock.js`, но production версия `widget-calculator.js` собирается вручную.
+4. **Источник прод-виджета**: для отображения на главной и в тестах используется только `public/widget-calculator.js`.
