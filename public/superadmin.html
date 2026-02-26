@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SuperAdmin — Медицинский калькулятор</title>
+  <link rel="stylesheet" href="admin.css">
+  <style>
+    /* Дополнительные стили для суперадмина */
+    .badge {
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-trial { background: #fef3c7; color: #92400e; }
+    .badge-paid { background: #d1fae5; color: #065f46; }
+    .badge-blocked { background: #fee2e2; color: #991b1b; }
+    
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    
+    .stat-card {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+    }
+    
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #1f2937;
+    }
+    
+    .stat-label {
+      font-size: 14px;
+      color: #6b7280;
+      margin-top: 4px;
+    }
+    
+    .client-actions {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 12px;
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 1000;
+    }
+    
+    .modal-content {
+      background: white;
+      margin: 5% auto;
+      padding: 24px;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 500px;
+    }
+    
+    .form-group {
+      margin-bottom: 16px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 4px;
+      font-weight: 500;
+    }
+    
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+    }
+    
+    .domains-input {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .domain-item {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    
+    .domain-item input {
+      flex: 1;
+    }
+    
+    /* Стили для фильтров */
+    .filters {
+      margin-bottom: 30px;
+    }
+    
+    .filters select,
+    .filters input {
+      padding: 8px 12px;
+      border: 1.5px solid var(--border, #e5e7eb);
+      border-radius: 8px;
+      background: var(--surface, #ffffff);
+      color: var(--text, #1a1a2e);
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    
+    .filters select:focus,
+    .filters input:focus {
+      border-color: var(--accent, #4279F6);
+      box-shadow: 0 0 0 3px rgba(66, 121, 246, 0.12);
+    }
+    
+    .filters select {
+      cursor: pointer;
+      min-width: 120px;
+    }
+    
+    .filters input {
+      flex: 1;
+      min-width: 200px;
+    }
+    
+    /* Стили для кнопки добавления клиента */
+    .page-header button {
+      margin-bottom: 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="icon">🏥</div>
+      <div class="lt"><h1>SuperAdmin</h1><p>Панель управления клиентами</p></div>
+    </div>
+    <div class="fg"><label>Email</label><input type="email" id="emailInput" placeholder="admin@example.com" /></div>
+    <div class="fg"><label>Пароль</label><input type="password" id="passwordInput" placeholder="Введите пароль" /></div>
+    <button class="btn btn-p btn-full" onclick="login()">Войти</button>
+    <div id="loginErr">Неверные данные для входа</div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="sidebar">
+    <div class="s-logo">
+      <div class="icon">🏥</div>
+      <div><div class="lname">SuperAdmin</div><div class="lsub">Управление клиентами</div></div>
+    </div>
+    <div class="nav-section">Клиенты</div>
+    <div class="nav-item active" onclick="showPage('clients')" id="nav-clients">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+      Клиенты
+    </div>
+    <div class="nav-item" onclick="showPage('stats')" id="nav-stats">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+      Статистика
+    </div>
+    <div class="nav-item" onclick="showPage('onboarding')" id="nav-onboarding">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h10m-7 4h7M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      Онбординг
+    </div>
+    <div class="nav-section">Настройки</div>
+    <div class="nav-item" onclick="showPage('admins')" id="nav-admins">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+      Админы
+    </div>
+    <div class="s-footer">
+      <div class="ak" id="akDisplay">superadmin@medical-calculator</div>
+      <button class="btn btn-g btn-sm btn-full" onclick="logout()">Выйти</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- Страница Клиенты -->
+    <div id="clients-page" class="page">
+      <div class="page-header">
+        <h1>Клиенты</h1>
+        <button class="btn btn-p" onclick="showCreateClientModal()">+ Добавить клиента</button>
+      </div>
+
+      <!-- Статистика -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="totalClients">0</div>
+          <div class="stat-label">Всего клиентов</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="trialClients">0</div>
+          <div class="stat-label">Trial</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="paidClients">0</div>
+          <div class="stat-label">Paid</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="blockedClients">0</div>
+          <div class="stat-label">Blocked</div>
+        </div>
+      </div>
+
+      <!-- Фильтры -->
+      <div class="filters">
+        <select id="licenseFilter" onchange="filterClients()">
+          <option value="">Все лицензии</option>
+          <option value="trial">Trial</option>
+          <option value="paid">Paid</option>
+          <option value="blocked">Blocked</option>
+        </select>
+        <input type="text" id="searchFilter" placeholder="Поиск по email или компании" onkeyup="filterClients()">
+      </div>
+
+      <!-- Таблица клиентов -->
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Компания</th>
+              <th>API ключ</th>
+              <th>Email</th>
+              <th>Источник</th>
+              <th>Лицензия</th>
+              <th>Срок действия</th>
+              <th>Дней до окончания</th>
+              <th>Домены</th>
+              <th>Заказы</th>
+              <th>Доход</th>
+              <th>Создан</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="clientsTable">
+            <!-- Будет заполнено через JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Страница Статистика -->
+    <div id="stats-page" class="page hidden">
+      <div class="page-header">
+        <h1>Статистика</h1>
+      </div>
+      
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="totalRevenue">0 ₽</div>
+          <div class="stat-label">Общий доход</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="totalOrders">0</div>
+          <div class="stat-label">Всего заказов</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="avgOrderValue">0 ₽</div>
+          <div class="stat-label">Средний чек</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="activeClients">0</div>
+          <div class="stat-label">Активные клиенты</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="onboarding-page" class="page hidden">
+      <div class="page-header">
+        <h1>Онбординг (Signup Requests)</h1>
+        <button class="btn btn-g" onclick="loadSignupRequests()">Обновить</button>
+      </div>
+      <div class="filters">
+        <select id="signupStatusFilter" onchange="onSignupFilterChange()">
+          <option value="">Все статусы</option>
+          <option value="pending">pending</option>
+          <option value="paid">paid</option>
+          <option value="provisioned">provisioned</option>
+          <option value="failed">failed</option>
+        </select>
+      </div>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Компания</th><th>Email</th><th>Домен</th><th>План</th><th>Статус</th><th>Платёж</th><th>Клиент ID</th><th>Ключ</th><th>Создан</th>
+            </tr>
+          </thead>
+          <tbody id="signupRequestsTable"></tbody>
+        </table>
+      </div>
+      <div class="client-actions" style="justify-content:space-between; margin-top:12px;">
+        <button class="btn btn-g btn-sm" onclick="prevSignupPage()">← Назад</button>
+        <div id="signupPageInfo" style="color:#6b7280;font-size:13px;">Страница 1</div>
+        <button class="btn btn-g btn-sm" onclick="nextSignupPage()">Вперед →</button>
+      </div>
+    </div>
+
+    <!-- Страница Админы -->
+    <div id="admins-page" class="page hidden">
+      <div class="page-header">
+        <h1>Администраторы</h1>
+        <button class="btn btn-p" onclick="showCreateAdminModal()">+ Добавить админа</button>
+      </div>
+      
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Email</th>
+              <th>Создан</th>
+              <th>Действия</th>
+            </tr>
+          </thead>
+          <tbody id="adminsTable">
+            <!-- Будет заполнено через JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Модальное окно создания/редактирования клиента -->
+<div id="clientModal" class="modal">
+  <div class="modal-content">
+    <h2 id="clientModalTitle">Создать клиента</h2>
+    <form id="clientForm">
+      <div class="form-group">
+        <label>Название компании</label>
+        <input type="text" id="companyName" required>
+      </div>
+      
+      <div class="form-group">
+        <label>Contact Email</label>
+        <input type="email" id="contactEmail" required>
+      </div>
+      
+      <div class="form-group">
+        <label>Тип лицензии</label>
+        <select id="licenseType" onchange="updateLicenseFields()">
+          <option value="trial">Trial (14 дней)</option>
+          <option value="paid">Paid</option>
+          <option value="blocked">Blocked</option>
+        </select>
+      </div>
+      
+      <div class="form-group" id="trialUntilGroup">
+        <label>Trial до</label>
+        <input type="date" id="trialUntil">
+      </div>
+      
+      <div class="form-group" id="paidUntilGroup" style="display:none;">
+        <label>Paid до</label>
+        <input type="date" id="paidUntil">
+      </div>
+      
+      <div class="form-group">
+        <label>Разрешённые домены</label>
+        <div class="domains-input" id="domainsContainer">
+          <div class="domain-item">
+            <input type="text" placeholder="example.com" class="domain-input">
+            <button type="button" class="btn btn-g btn-sm" onclick="removeDomain(this)">×</button>
+          </div>
+        </div>
+        <button type="button" class="btn btn-g btn-sm" onclick="addDomain()">+ Добавить домен</button>
+      </div>
+      
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p">Сохранить</button>
+        <button type="button" class="btn btn-g" onclick="closeClientModal()">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Модальное окно создания админа -->
+<div id="adminModal" class="modal">
+  <div class="modal-content">
+    <h2>Создать администратора</h2>
+    <form id="adminForm">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="adminEmail" required>
+      </div>
+      
+      <div class="form-group">
+        <label>Пароль</label>
+        <input type="password" id="adminPassword" required>
+      </div>
+      
+      <div class="form-actions">
+        <button type="submit" class="btn btn-p">Создать</button>
+        <button type="button" class="btn btn-g" onclick="closeAdminModal()">Отмена</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="superadmin.js"></script>
+
+</body>
+</html>

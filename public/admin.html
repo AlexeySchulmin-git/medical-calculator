@@ -11,11 +11,15 @@
 <div id="loginScreen">
   <div class="login-card">
     <div class="login-logo">
-      <div class="icon">🏥</div>
+      <div class="icon" aria-hidden="true">
+        <svg class="mono-ico" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 21V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21v-5h6v5M9 9h2m4 0h-2m-2-2v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
       <div class="lt"><h1>MedAdmin</h1><p>Медицинский калькулятор</p></div>
     </div>
-    <div class="fg"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="Введите API ключ" /></div>
-    <button class="btn btn-p btn-full" onclick="login()">Войти</button>
+    <form onsubmit="login(); return false;">
+      <div class="fg"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="Введите API ключ" autocomplete="current-password" /></div>
+      <button type="submit" class="btn btn-p btn-full">Войти</button>
+    </form>
     <div id="loginErr">Неверный API ключ</div>
   </div>
 </div>
@@ -23,7 +27,9 @@
 <div id="app">
   <div class="sidebar">
     <div class="s-logo">
-      <div class="icon">🏥</div>
+      <div class="icon" aria-hidden="true">
+        <svg class="mono-ico" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 21V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21v-5h6v5M9 9h2m4 0h-2m-2-2v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
       <div><div class="lname">MedAdmin</div><div class="lsub">Панель управления</div></div>
     </div>
     <div class="nav-section">Основное</div>
@@ -44,6 +50,10 @@
       <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
       Интеграции
     </div>
+    <div class="nav-item" onclick="showPage('fields')" id="nav-fields">
+      <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 5a2 2 0 002 2h2a2 2 0 002-2"/></svg>
+      Отключение полей
+    </div>
     <div class="s-footer">
       <div class="ak" id="akDisplay"></div>
       <button class="btn btn-g btn-sm btn-full" onclick="logout()">Выйти</button>
@@ -54,20 +64,22 @@
     <div class="page active" id="page-orders">
       <div class="ph"><div><h2>Заявки</h2><div class="ph-sub">Управление входящими заявками</div></div><button class="btn btn-g btn-sm" onclick="loadOrders()">↻ Обновить</button></div>
       <div class="stats">
-        <div class="sc"><div class="sl">📋 Всего заявок</div><div class="sv" id="st-total">—</div></div>
-        <div class="sc"><div class="sl">🔵 Новые</div><div class="sv c-new" id="st-new">—</div></div>
-        <div class="sc"><div class="sl">🟡 В работе</div><div class="sv c-prog" id="st-prog">—</div></div>
-        <div class="sc"><div class="sl">🟢 Завершены</div><div class="sv c-done" id="st-done">—</div></div>
+        <div class="sc"><div class="sl"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 7h8M8 12h8M8 17h8M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Всего заявок</div><div class="sv" id="st-total">—</div></div>
+        <div class="sc"><div class="sl"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M12 8v4l2 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Новые</div><div class="sv c-new" id="st-new">—</div></div>
+        <div class="sc"><div class="sl"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>В работе</div><div class="sv c-prog" id="st-prog">—</div></div>
+        <div class="sc"><div class="sl"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12l4 4L19 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Завершены</div><div class="sv c-done" id="st-done">—</div></div>
       </div>
       <div class="card">
         <div class="ch">
           <h3>Список заявок</h3>
           <div class="filters">
-            <button class="fb active" onclick="filterOrders(null,this)">Все</button>
+            <button class="fb active" onclick="filterOrders(null,this,false)">Все</button>
             <button class="fb" onclick="filterOrders('new',this)">Новые</button>
             <button class="fb" onclick="filterOrders('in_progress',this)">В работе</button>
             <button class="fb" onclick="filterOrders('completed',this)">Завершены</button>
             <button class="fb" onclick="filterOrders('cancelled',this)">Отменены</button>
+            <button class="fb" onclick="filterOrders(null,this,true)">Архив</button>
+            <button class="fb" id="clearOrdersFilters" onclick="clearOrdersFilters()" style="display:none" title="Сбросить фильтры">✕</button>
           </div>
         </div>
         <div id="ordersWrap"><div class="loader">Загрузка...</div></div>
@@ -84,7 +96,7 @@
 
       <!-- 1. Настройки компании -->
       <div class="section">
-        <div class="section-title">🏢 Адрес базы <span>стартовая точка маршрута</span></div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 21V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 21v-5h6v5M9 9h2m4 0h-2m-2-2v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Адрес базы <span>стартовая точка маршрута</span></div>
         <div class="info-box">Маршрут рассчитывается как: База → Откуда → Куда → База. Укажите адрес и координаты вашей компании.</div>
         <div class="pg2">
           <div class="pc">
@@ -113,14 +125,14 @@
 
       <!-- 2. Базовые тарифы -->
       <div class="section">
-        <div class="section-title">💰 Базовые тарифы</div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M9 10.5c0-1.1 1.2-2 3-2s3 .9 3 2-1.2 2-3 2-3 .9-3 2 1.2 2 3 2 3-.9 3-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 7v10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Базовые тарифы</div>
         <div class="pg">
           <div class="pc"><label>Стоимость за км</label><input type="number" id="p_per_km" min="0"><div class="unit">₽/км</div></div>
           <div class="pc"><label>Ожидание (за 30 мин)</label><input type="number" id="p_waiting_30min" min="0"><div class="unit">₽</div></div>
           <div class="pc"><label>Кислород</label><input type="number" id="p_oxygen_fee" min="0"><div class="unit">₽</div></div>
           <div class="pc"><label>Без сопровождения</label><input type="number" id="p_no_escort_fee" min="0"><div class="unit">₽</div></div>
         </div>
-        <div class="section-title" style="margin-top:20px;font-size:14px">➕ Надбавка к итоговой стоимости <span>применяется после всех опций</span></div>
+        <div class="section-title" style="margin-top:20px;font-size:14px"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Надбавка к итоговой стоимости <span>применяется после всех опций</span></div>
         <div class="pg2">
           <div class="pc">
             <label>Фикс. надбавка (можно отрицательную)</label>
@@ -138,15 +150,22 @@
 
       <!-- 2b. Туда-обратно -->
       <div class="section">
-        <div class="section-title">🔄 Туда-обратно</div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 7h10m0 0-3-3m3 3-3 3M17 17H7m0 0 3 3m-3-3 3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Туда-обратно</div>
         <div class="info-box">Настройте как изменяется цена при выборе опции «туда и обратно». Можно прибавлять фикс. сумму или наценять на %. Отрицательное значение = скидка.</div>
         <div class="pg2">
           <div class="pc">
             <label>Тип надбавки</label>
-            <select id="p_round_trip_type" onchange="updateRtHint()">
+            <select id="p_round_trip_type" onchange="updateRtHint()" style="display:none;">
               <option value="0">Коэффициент %</option>
               <option value="1">Фиксированная сумма ₽</option>
             </select>
+            <div class="custom-select" id="p_round_trip_type_custom">
+              <button type="button" class="custom-select-btn" id="p_round_trip_type_btn" aria-haspopup="listbox" aria-expanded="false">Коэффициент %</button>
+              <div class="custom-select-list" id="p_round_trip_type_list" role="listbox" aria-label="Тип надбавки туда-обратно">
+                <div class="custom-select-option" data-value="0" role="option" aria-selected="true">Коэффициент %</div>
+                <div class="custom-select-option" data-value="1" role="option" aria-selected="false">Фиксированная сумма ₽</div>
+              </div>
+            </div>
             <div class="unit">Выберите способ расчёта</div>
           </div>
           <div class="pc">
@@ -160,7 +179,7 @@
 
       <!-- 3. Спуск без лифта -->
       <div class="section">
-        <div class="section-title">⬇️ Спуск без лифта <span>тариф зависит от веса пациента</span></div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14m0 0-4-4m4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Спуск без лифта <span>тариф зависит от веса пациента</span></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:8px;margin-bottom:8px">
           <div class="col-header">Вес от (кг)</div>
           <div class="col-header">Вес до (кг)</div>
@@ -175,7 +194,7 @@
 
       <!-- 4. Подъём без лифта -->
       <div class="section">
-        <div class="section-title">⬆️ Подъём без лифта <span>тариф зависит от веса пациента</span></div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 19V5m0 0-4 4m4-4 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Подъём без лифта <span>тариф зависит от веса пациента</span></div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 40px;gap:8px;margin-bottom:8px">
           <div class="col-header">Вес от (кг)</div>
           <div class="col-header">Вес до (кг)</div>
@@ -185,11 +204,12 @@
         </div>
         <div id="ascentTiers"></div>
         <button class="btn btn-g btn-sm" onclick="addTierRow('ascent')">+ Добавить диапазон</button>
+        <div class="pa"><button class="btn btn-p btn-sm btn-save" onclick="saveFloorTiers()">Сохранить тарифы этажей</button><span id="ftsm2" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span></div>
       </div>
 
       <!-- 5. Городские коэффициенты -->
       <div class="section">
-        <div class="section-title">🏙️ Города: коэффициенты и фиксированные цены</div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 20V9h6v11M10 20V5h10v15M14 9h2m0 4h2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Города: коэффициенты и фиксированные цены</div>
         <div class="info-box">Фиксированная цена — заменяет расчёт по км для этого города. Процент — наценка к стоимости по км. Надбавка за км — добавляется к базовой ставке за км.</div>
         <div style="display:grid;grid-template-columns:1fr 130px 100px 90px 1fr 40px;gap:8px;margin-bottom:8px">
           <div class="col-header">Город</div>
@@ -206,10 +226,75 @@
 
       <!-- 6. Мед. сопровождение -->
       <div class="section">
-        <div class="section-title">🩺 Мед. сопровождение</div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 4h10M9 4v5h6V4M12 9v11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 15h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Мед. сопровождение</div>
         <div class="info-box">При выборе мед. сопровождения в виджете будет показано сообщение: <em>«Стоимость зависит от диагноза и состояния пациента. Менеджер уточнит цену при подтверждении заявки.»</em></div>
       </div>
 
+    </div>
+
+    <div class="page" id="page-fields">
+      <div class="ph"><div><h2>Отключение полей</h2><div class="ph-sub">Управление видимостью полей в калькуляторе</div></div></div>
+      <div class="section">
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4m10 0h4M7 7l3 3m4 4 3 3m0-10-3 3m-4 4-3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Поля калькулятора</div>
+        <div class="info-box">Чекбокс включен — поле отображается в виджете. Чекбокс выключен — поле скрыто.</div>
+        <div style="max-width:520px;margin-top:14px;">
+          <label style="display:block;font-weight:600;margin-bottom:6px;">Режим отображения виджета</label>
+          <select id="cf_widget_display_mode" style="display:none;">
+            <option value="page_only">Только форма на странице</option>
+            <option value="drawer_only">Только форма в выезжающей области</option>
+          </select>
+          <div class="custom-select" id="cf_widget_display_mode_custom">
+            <button type="button" class="custom-select-btn" id="cf_widget_display_mode_btn" aria-haspopup="listbox" aria-expanded="false">Только форма на странице</button>
+            <div class="custom-select-list" id="cf_widget_display_mode_list" role="listbox" aria-label="Режим отображения виджета">
+              <div class="custom-select-option" data-value="page_only" role="option" aria-selected="true">Только форма на странице</div>
+              <div class="custom-select-option" data-value="drawer_only" role="option" aria-selected="false">Только форма в выезжающей области</div>
+            </div>
+          </div>
+          <div class="info-box" style="margin-top:8px;">Для сайтов клиентов с минимальными изменениями структуры используйте «Только форма в выезжающей области».</div>
+          <div class="pa" style="margin-top:10px;">
+            <button class="btn btn-p btn-sm" onclick="saveWidgetDisplayMode()">Сохранить режим отображения</button>
+            <span id="cfsm_mode" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:760px;margin-top:14px;">
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_medical_escort" checked>
+            Медицинское сопровождение
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_need_oxygen" checked>
+            Нужен кислород
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_email" checked>
+            Email
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_comment" checked>
+            Комментарий
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_diagnosis" checked>
+            Диагноз
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_escort_count" checked>
+            Сопровождение
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_round_trip" checked>
+            Туда-обратно
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:10px;background:#fff;font-weight:500;">
+            <input type="checkbox" id="cf_trip_date" checked>
+            Дата поездки
+          </label>
+        </div>
+        <div class="pa">
+          <button class="btn btn-p btn-sm btn-save" onclick="saveCalculatorFields()">Сохранить поля</button>
+          <span id="cfsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span>
+        </div>
+      </div>
     </div>
 
     <!-- Страница Лояльность -->
@@ -217,21 +302,33 @@
       <div class="ph"><div><h2>Система лояльности</h2><div class="ph-sub">Бонусы за повторные заказы</div></div></div>
 
       <div class="section">
-        <div class="section-title">⭐ Настройки бонусной программы</div>
-        <div class="info-box">При каждом заказе клиент получает бонусные баллы. Баллы накапливаются автоматически по номеру телефона. 1 балл = 1 рубль.</div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Настройки бонусной программы</div>
+        <div class="info-box">Бонусы начисляются после перевода заявки в статус «Завершена». Баллы накапливаются по номеру телефона. 1 балл = 1 рубль.</div>
         <div class="pg2">
           <div class="pc">
             <label>Система лояльности</label>
-            <select id="l_enabled">
+            <select id="l_enabled" style="display:none;">
               <option value="0">Выключена</option>
               <option value="1">Включена</option>
             </select>
+            <div class="custom-select" id="l_enabled_custom">
+              <button type="button" class="custom-select-btn" id="l_enabled_btn" aria-haspopup="listbox" aria-expanded="false">Выключена</button>
+              <div class="custom-select-list" id="l_enabled_list" role="listbox" aria-label="Система лояльности">
+                <div class="custom-select-option" data-value="0" role="option" aria-selected="true">Выключена</div>
+                <div class="custom-select-option" data-value="1" role="option" aria-selected="false">Включена</div>
+              </div>
+            </div>
             <div class="unit">При выключении бонусы не начисляются</div>
           </div>
           <div class="pc">
             <label>Процент начисления</label>
             <input type="number" id="l_percent" min="0" max="100" step="0.5">
             <div class="unit">% от суммы заказа. Напр.: 5 = 5% от 4500₽ = 225 баллов</div>
+          </div>
+          <div class="pc">
+            <label>Максимум списания бонусами</label>
+            <input type="number" id="l_max_usage_percent" min="0" max="100" step="1">
+            <div class="unit">Ограничение на списание от доступного бонусного баланса за 1 заказ. Напр.: 25% при 100 баллах = 25₽</div>
           </div>
         </div>
         <div class="pa">
@@ -241,11 +338,11 @@
       </div>
 
       <div class="section">
-        <div class="section-title">👥 Клиенты <span id="lc-count"></span></div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 20v-1a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Клиенты <span id="lc-count"></span></div>
         <div class="stats" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px">
-          <div class="sc"><div class="sl">👥 Всего клиентов</div><div class="sv" id="lc-total">—</div></div>
-          <div class="sc"><div class="sl">⭐ Баллов выдано</div><div class="sv c-new" id="lc-bonus">—</div></div>
-          <div class="sc"><div class="sl">💰 Оборот</div><div class="sv c-done" id="lc-spent">—</div></div>
+          <div class="sc"><div class="sl"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M16 20v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Всего клиентов</div><div class="sv" id="lc-total">—</div></div>
+          <div class="sc"><div class="sl"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3l2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.2 6.4 20.2l1.1-6.2L3 9.6l6.2-.9L12 3z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Баллов выдано</div><div class="sv c-new" id="lc-bonus">—</div></div>
+          <div class="sc"><div class="sl"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M9 10.5c0-1.1 1.2-2 3-2s3 .9 3 2-1.2 2-3 2-3 .9-3 2 1.2 2 3 2 3-.9 3-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 7v10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Оборот</div><div class="sv c-done" id="lc-spent">—</div></div>
         </div>
         <div class="card">
           <div class="ch"><h3>Список клиентов</h3><button class="btn btn-g btn-sm" onclick="loadLoyaltyCustomers()">↻ Обновить</button></div>
@@ -260,20 +357,18 @@
 
       <!-- Telegram -->
       <div class="section">
-        <div class="section-title">🤖 Telegram-уведомления</div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M22 2L11 13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M22 2L15 22l-4-9-9-4 20-7z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Telegram-уведомления</div>
         <div class="info-box">
-          Получайте уведомления о новых заявках прямо в Telegram. Чтобы подключиться:
+          Получайте уведомления о новых заявках прямо в Telegram. Для подключения:
           <ol style="margin:8px 0 0 16px;line-height:1.8">
-            <li>Откройте Telegram и найдите бота: <strong id="tgBotLink">@...загрузка...</strong></li>
-            <li>Отправьте боту команду: <code style="background:#dbeafe;padding:2px 6px;border-radius:4px">/start <span id="tgApiKeyHint" style="color:var(--accent)">ВАШ_API_КЛЮЧ</span></code></li>
-            <li>Бот подтвердит подключение и уведомления начнут приходить автоматически</li>
+            <li>Узнайте свой Chat ID: напишите боту <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent)">@userinfobot</a> — он пришлёт ваш ID</li>
+            <li>Вставьте Chat ID в поле ниже и нажмите «Сохранить Chat ID»</li>
           </ol>
         </div>
         <div class="pg2" style="margin-top:16px">
           <div class="pc">
             <label>Статус Telegram</label>
             <div id="tgStatus" style="font-size:14px;padding:10px 0;color:var(--muted2)">Загрузка...</div>
-            <div class="unit">Подключается через бота или вводится вручную</div>
           </div>
           <div class="pc">
             <label>Ваш Chat ID</label>
@@ -291,12 +386,37 @@
 
       <!-- Google Sheets -->
       <div class="section">
-        <div class="section-title">📊 Google Sheets</div>
+        <div class="section-title"><svg class="mono-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4h16v16H4z" stroke="currentColor" stroke-width="1.8"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Google Sheets</div>
         <div class="info-box">
           Каждая новая заявка автоматически записывается в вашу Google Таблицу. Чтобы подключиться:
           <ol style="margin:8px 0 0 16px;line-height:1.8">
             <li>Создайте новую Google Таблицу (или откройте существующую)</li>
-            <li>Нажмите «Поделиться» и добавьте редактора: <strong id="sheetsServiceEmail" style="color:var(--accent);font-size:12px">загрузка...</strong></li>
+            <li>
+              Нажмите «Поделиться» и добавьте редактора:
+              <strong id="sheetsServiceEmail" style="color:var(--accent);font-size:12px">загрузка...</strong>
+              <button
+                type="button"
+                onclick="copySheetsServiceEmail()"
+                aria-label="Скопировать email сервисного аккаунта"
+                title="Скопировать"
+                style="
+                  margin-left:3px;
+                  position:relative;
+                  top:-2px;
+                  border:none;
+                  background:transparent;
+                  padding:0;
+                  cursor:pointer;
+                  vertical-align:middle;
+                  line-height:0;
+                "
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <rect x="9" y="3" width="11" height="14" rx="2" stroke="#2f63e8" stroke-width="2"/>
+                  <rect x="4" y="7" width="11" height="14" rx="2" stroke="#2f63e8" stroke-width="2"/>
+                </svg>
+              </button>
+            </li>
             <li>Скопируйте ID таблицы из URL и вставьте ниже</li>
           </ol>
         </div>
@@ -312,9 +432,13 @@
             <div class="unit">Название листа в таблице (по умолчанию: «Заявки»)</div>
           </div>
         </div>
+        <div class="unit" style="margin-top:8px;">
+          <a id="sheetsOpenLink" href="#" target="_blank" rel="noopener" style="display:none;color:var(--accent);font-weight:600;">Перейти в таблицу ↗</a>
+        </div>
         <div class="pa">
           <button class="btn btn-p btn-sm btn-save" onclick="saveSheets()">&#128190; Сохранить</button>
           <button class="btn btn-g btn-sm btn-save" onclick="testSheets()">✓ Проверить запись</button>
+          <button class="btn btn-sm btn-save" onclick="syncSheetsClientData()">⟳ Обновить данные</button>
           <span id="shsm" style="font-size:13px;color:var(--ok);display:none">✓ Сохранено</span>
         </div>
       </div>
@@ -334,9 +458,678 @@
 <div id="toast"></div>
 
 <script>
-const API = window.API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3003' : window.location.origin);
-let apiKey = sessionStorage.getItem('adminApiKey') || '', curPage = 1, curFilter = null;
+const API = window.API_URL || (window.location.port === '3003' ? '' : 'http://localhost:3003');
+let apiKey = sessionStorage.getItem('adminApiKey') || '', curPage = 1, curFilter = null, curPhoneFilter = null, curArchived = false;
+let loadedCompanyBaseAddress = '';
+let loadedCompanyBaseCoords = '';
 const PER_PAGE = 20;
+
+function normalizePhoneForFilter(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return null;
+  if (digits.length === 11) return digits;
+  if (digits.length === 10) return '7' + digits;
+  return digits;
+}
+
+function syncSheetsClientData() {
+  fetch(`${API}/api/sheets/sync-client`, {
+    method: 'POST',
+    headers: {'x-api-key': apiKey}
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.success) {
+        showToast(`Синхронизация завершена: ${d.synced || 0} заявок`, 'success');
+      } else {
+        showToast('Ошибка: ' + (d.error || 'не удалось обновить данные'), 'error');
+      }
+    })
+    .catch(() => showToast('Ошибка', 'error'));
+}
+
+function toggleOrderArchive(id, archived) {
+  const actionLabel = archived ? 'перенести в архив' : 'восстановить из архива';
+  if (!confirm(`Подтвердите: ${actionLabel}?`)) return;
+  fetch(`${API}/api/orders/${id}/archive`, {
+    method: 'POST',
+    headers: {'x-api-key': apiKey, 'Content-Type': 'application/json'},
+    body: JSON.stringify({ archived: !!archived }),
+  })
+    .then(r => r.json().catch(() => ({})).then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.success) throw new Error(data.error || 'Ошибка обновления');
+      showToast(archived ? 'Заявка перенесена в архив' : 'Заявка восстановлена', 'success');
+      loadOrders();
+      const modal = document.getElementById('orderModal');
+      if (modal?.classList.contains('open')) modal.classList.remove('open');
+    })
+    .catch((e) => showToast(e.message || 'Ошибка', 'error'));
+}
+
+function deleteOrder(id) {
+  if (!confirm('Удалить заявку безвозвратно?')) return;
+  fetch(`${API}/api/orders/${id}`, {
+    method: 'DELETE',
+    headers: {'x-api-key': apiKey},
+  })
+    .then(r => r.json().catch(() => ({})).then(data => ({ ok: r.ok, data })))
+    .then(({ ok, data }) => {
+      if (!ok || !data.success) throw new Error(data.error || 'Ошибка удаления');
+      showToast('Заявка удалена', 'success');
+      loadOrders();
+      const modal = document.getElementById('orderModal');
+      if (modal?.classList.contains('open')) modal.classList.remove('open');
+    })
+    .catch((e) => showToast(e.message || 'Ошибка', 'error'));
+}
+
+function setOrderBasicCustomSelectValue(selectId, value) {
+  const native = document.getElementById(selectId);
+  const btn = document.getElementById(`${selectId}_btn`);
+  const list = document.getElementById(`${selectId}_list`);
+  if (!native || !btn || !list) return;
+  native.value = String(value);
+  const active = list.querySelector(`.custom-select-option[data-value="${String(value).replace(/"/g, '\\"')}"]`) || list.querySelector('.custom-select-option');
+  if (!active) return;
+  btn.textContent = active.textContent;
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    const isActive = opt === active;
+    opt.classList.toggle('active', isActive);
+    opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+}
+
+function initOrderBasicCustomSelect(selectId, onChange) {
+  const native = document.getElementById(selectId);
+  const root = document.getElementById(`${selectId}_custom`);
+  const btn = document.getElementById(`${selectId}_btn`);
+  const list = document.getElementById(`${selectId}_list`);
+  if (!native || !root || !btn || !list) return;
+
+  setOrderBasicCustomSelectValue(selectId, native.value || '');
+
+  const close = () => {
+    root.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+
+  btn.addEventListener('click', () => {
+    const willOpen = !root.classList.contains('open');
+    root.classList.toggle('open', willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    opt.tabIndex = -1;
+    opt.addEventListener('click', () => {
+      setOrderBasicCustomSelectValue(selectId, opt.dataset.value || '');
+      close();
+      if (typeof onChange === 'function') onChange(native.value);
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!root.contains(e.target)) close();
+  });
+}
+
+function updateOrderDiagnosisCustomVisibility() {
+  const diagnosis = document.getElementById('oe_diagnosis');
+  const customRow = document.getElementById('oe_diagnosis_custom_row');
+  if (!diagnosis || !customRow) return;
+  const isOther = diagnosis.value === 'other';
+  customRow.style.display = isOther ? 'block' : 'none';
+}
+
+function setModalClearButtonState(input, btn) {
+  if (!input || !btn) return;
+  btn.classList.toggle('visible', String(input.value || '').trim().length > 0);
+}
+
+function setupModalClearButton(btnId, inputId, onClear) {
+  const btn = document.getElementById(btnId);
+  const input = document.getElementById(inputId);
+  if (!btn || !input) return;
+  setModalClearButtonState(input, btn);
+  input.addEventListener('input', () => setModalClearButtonState(input, btn));
+  btn.addEventListener('click', () => {
+    input.value = '';
+    setModalClearButtonState(input, btn);
+    input.focus();
+    if (typeof onClear === 'function') onClear();
+  });
+}
+
+function wrapWithModalClearBtn(inputId, inputHtml) {
+  return `<div class="oe-input-wrap">${inputHtml}<button type="button" class="oe-clear-btn" id="${inputId}_clear" title="Очистить" aria-label="Очистить">×</button></div>`;
+}
+
+function formatOrderPriceWithSpaces(value) {
+  const digits = String(value || '').replace(/\D+/g, '');
+  if (!digits) return '';
+  return parseInt(digits, 10).toLocaleString('ru-RU').replace(/\u00A0/g, ' ');
+}
+
+function initOrderPriceMask() {
+  const input = document.getElementById('oe_price');
+  if (!input) return;
+  input.addEventListener('input', () => {
+    const masked = formatOrderPriceWithSpaces(input.value);
+    input.value = masked;
+  });
+}
+
+function isOrderAddressInputId(fieldId) {
+  return fieldId === 'oe_from_address' || fieldId === 'oe_to_address';
+}
+
+function isOrderAddressComplete(input) {
+  if (!input) return false;
+  const fullAddress = String(input.dataset.fullAddress || '').trim();
+  const lat = parseFloat(input.dataset.lat || '');
+  const lon = parseFloat(input.dataset.lon || '');
+  return !!fullAddress && Number.isFinite(lat) && Number.isFinite(lon);
+}
+
+function setOrderAddressValidationError(input, message) {
+  if (!input) return;
+  input.classList.add('oe-input-invalid');
+  const msg = document.getElementById(`${input.id}_validation`);
+  if (msg) {
+    msg.textContent = message || 'Выберите адрес до дома из подсказок';
+    msg.classList.add('show');
+  }
+}
+
+function clearOrderAddressValidationError(input) {
+  if (!input) return;
+  input.classList.remove('oe-input-invalid');
+  const msg = document.getElementById(`${input.id}_validation`);
+  if (msg) {
+    msg.textContent = '';
+    msg.classList.remove('show');
+  }
+}
+
+function validateOrderAddressField(input) {
+  if (!input) return true;
+  const value = String(input.value || '').trim();
+  if (!value) {
+    setOrderAddressValidationError(input, 'Поле не может быть пустым');
+    return false;
+  }
+  if (isOrderAddressComplete(input)) {
+    clearOrderAddressValidationError(input);
+    return true;
+  }
+  setOrderAddressValidationError(input, 'Выберите полный адрес из подсказок (до дома)');
+  return false;
+}
+
+function initOrderModalAutosave(orderId) {
+  const textFieldIds = ['oe_price', 'oe_from_address', 'oe_to_address', 'oe_diagnosis_custom'];
+  textFieldIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (isOrderAddressInputId(id)) {
+      el.addEventListener('focus', () => {
+        el.dataset.focusValue = String(el.value || '').trim();
+      });
+      el.addEventListener('input', () => clearOrderAddressValidationError(el));
+    }
+    el.addEventListener('blur', async () => {
+      if (isOrderAddressInputId(id)) {
+        const focusValue = String(el.dataset.focusValue || '').trim();
+        const currentValue = String(el.value || '').trim();
+        if (currentValue === focusValue) return;
+      }
+      if (isOrderAddressInputId(id) && !validateOrderAddressField(el)) return;
+      if (el.dataset.autoSaving === '1') return;
+      el.dataset.autoSaving = '1';
+      const ok = await saveOrderEdits(orderId, { silent: true, skipReopen: true });
+      delete el.dataset.autoSaving;
+      if (ok) showToast('Изменения сохранены', 'success');
+    });
+  });
+}
+
+async function recalcOrderDistanceIfPossible() {
+  const from = document.getElementById('oe_from_address');
+  const to = document.getElementById('oe_to_address');
+  if (!from || !to) return null;
+  const fromLat = parseFloat(from.dataset.lat || '');
+  const fromLon = parseFloat(from.dataset.lon || '');
+  const toLat = parseFloat(to.dataset.lat || '');
+  const toLon = parseFloat(to.dataset.lon || '');
+  if (![fromLat, fromLon, toLat, toLon].every(Number.isFinite)) return null;
+
+  const r = await fetch(`${API}/api/dadata/distance`, {
+    method: 'POST',
+    headers: {
+      'x-api-key': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: { lat: fromLat, lon: fromLon },
+      to: { lat: toLat, lon: toLon },
+    }),
+  });
+  const data = await r.json().catch(() => ({}));
+  const distance = parseFloat(data?.distance);
+  if (!r.ok || !data?.success || !Number.isFinite(distance)) return null;
+  const distLabel = document.getElementById('oe_distance_value');
+  if (distLabel) distLabel.textContent = `${distance.toFixed(2)} км`;
+  return distance;
+}
+
+function escHtml(v) {
+  return String(v || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function resetOrderAddressState(input) {
+  if (!input) return;
+  input.addressState = {
+    cityFiasId: null,
+    settlementFiasId: null,
+    streetFiasId: null,
+    cityName: '',
+    streetName: '',
+    houseName: ''
+  };
+  delete input.dataset.lat;
+  delete input.dataset.lon;
+  delete input.dataset.fullAddress;
+}
+
+function detectOrderAddressStateChange(input) {
+  const currentValue = String(input.value || '').trim();
+  const state = input.addressState;
+  if (!state) return;
+
+  if (!currentValue) {
+    resetOrderAddressState(input);
+    return;
+  }
+
+  if (state.houseName && !currentValue.includes(state.houseName)) {
+    state.houseName = '';
+    delete input.dataset.lat;
+    delete input.dataset.lon;
+    delete input.dataset.fullAddress;
+  }
+
+  if (state.streetName && !currentValue.includes(state.streetName)) {
+    state.streetName = '';
+    state.streetFiasId = null;
+    state.houseName = '';
+    delete input.dataset.lat;
+    delete input.dataset.lon;
+    delete input.dataset.fullAddress;
+  }
+
+  if (state.cityName && !currentValue.includes(state.cityName)) {
+    resetOrderAddressState(input);
+  }
+}
+
+function getOrderAddressSuggestionStep(input) {
+  const state = input?.addressState || {};
+  if (state.streetFiasId) return 'house';
+  if (state.settlementFiasId || state.cityFiasId) return 'street';
+  const value = String(input?.value || '').trim();
+  const commaCount = (value.match(/,/g) || []).length;
+  if (commaCount >= 2) return 'house';
+  if (commaCount >= 1) return 'street';
+  return 'locality';
+}
+
+function isUnsupportedOrderStreetEntity(streetLabel) {
+  const value = String(streetLabel || '').trim().toLowerCase();
+  if (!value) return false;
+  const blockedMarkers = ['тер ', 'тер.', 'территория', 'гпк', 'снт', 'днп', 'тсн'];
+  return blockedMarkers.some(marker => value.includes(marker));
+}
+
+function shouldKeepOrderSuggestionForStep(suggestion, step) {
+  const d = suggestion?.data || {};
+  const level = parseInt(String(d.fias_level || '').trim(), 10);
+
+  if (step === 'locality') {
+    const isLocalityLevel = [1, 3, 4, 5, 6].includes(level);
+    const hasLocalityData = !!(d.city || d.settlement || d.city_with_type || d.settlement_with_type);
+    return isLocalityLevel && hasLocalityData;
+  }
+
+  if (step === 'street') {
+    if (level !== 7) return false;
+    if (!d.street && !d.street_with_type) return false;
+    if (!d.street_fias_id) return false;
+    return !isUnsupportedOrderStreetEntity(d.street_with_type || d.street || suggestion?.value || '');
+  }
+
+  if (step === 'house') {
+    return level === 8 || !!d.house;
+  }
+
+  return true;
+}
+
+function buildOrderLocalityLabel(data, localityCore) {
+  const core = String(localityCore || '').trim();
+  const area = String(data?.area_with_type || '').trim();
+  const district = String(data?.city_district_with_type || '').trim();
+  const parts = [core];
+  if (district && !core.toLowerCase().includes(district.toLowerCase())) parts.push(district);
+  if (area && !core.toLowerCase().includes(area.toLowerCase())) parts.push(area);
+  return parts.filter(Boolean).join(', ');
+}
+
+async function confirmOrderHouseSelection(unrestrictedValue) {
+  const query = String(unrestrictedValue || '').trim();
+  if (!query) return null;
+
+  try {
+    const response = await fetch(`${API}/api/dadata/suggest`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+      },
+      body: JSON.stringify({
+        query,
+        count: 1,
+        restrict_value: true,
+      }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json().catch(() => ({}));
+    const suggestion = Array.isArray(data?.suggestions) ? data.suggestions[0] : null;
+    if (!suggestion) return { valid: false };
+
+    const d = suggestion.data || {};
+    const level = parseInt(String(d.fias_level || '').trim(), 10);
+    const hasHouse = !!d.house || level === 8;
+    const hasGeo = !!d.geo_lat && !!d.geo_lon;
+    const streetLabel = d.street_with_type || d.street || suggestion.value || '';
+    if (!hasHouse || !hasGeo || isUnsupportedOrderStreetEntity(streetLabel)) {
+      return { valid: false };
+    }
+
+    return { valid: true, suggestion };
+  } catch {
+    return null;
+  }
+}
+
+function initOrderAddressSuggest(inputId, listId) {
+  const input = document.getElementById(inputId);
+  const list = document.getElementById(listId);
+  if (!input || !list) return;
+
+  const hint = document.getElementById(`${inputId}_hint`);
+
+  if (!input.addressState) {
+    resetOrderAddressState(input);
+  }
+
+  let timer = null;
+  let activeController = null;
+  let reqSeq = 0;
+  let lastAppliedSeq = 0;
+
+  const close = () => list.classList.remove('open');
+  const updateHint = () => {
+    if (!hint) return;
+    const state = input.addressState || {};
+    let text = '';
+    if ((state.cityFiasId || state.settlementFiasId) && !state.streetFiasId) text = 'Введите улицу';
+    else if (state.streetFiasId && !state.houseName) text = 'Введите номер дома';
+    hint.textContent = text;
+    hint.classList.toggle('show', !!text);
+  };
+
+  const openWithSuggestions = (suggestions, query) => {
+    const step = getOrderAddressSuggestionStep(input);
+    const filtered = (Array.isArray(suggestions) ? suggestions : []).filter((s) =>
+      shouldKeepOrderSuggestionForStep(s, step)
+    );
+    if (!filtered.length) {
+      close();
+      return;
+    }
+
+    const highlight = (text, q) => {
+      if (!q || q.length < 2) return escHtml(text);
+      const parts = String(q).replace(/,\s*/g, ' ').trim().split(/\s+/).filter(p => p.length >= 2);
+      let out = escHtml(text);
+      parts.forEach((part) => {
+        out = out.replace(new RegExp(`(${part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'ig'), '<mark>$1</mark>');
+      });
+      return out;
+    };
+
+    list.innerHTML = filtered.map(s => {
+      const d = s.data || {};
+      return `<div class="oe-suggestions-item" data-value="${escHtml(s.value || '')}" data-unrestricted="${escHtml(s.unrestricted_value || s.value || '')}" data-fias-level="${escHtml(d.fias_level || '')}" data-fias-id="${escHtml(d.fias_id || '')}" data-region-fias="${escHtml(d.region_fias_id || '')}" data-lat="${escHtml(d.geo_lat || '')}" data-lon="${escHtml(d.geo_lon || '')}" data-city="${escHtml(d.city || '')}" data-city-with-type="${escHtml(d.city_with_type || '')}" data-settlement="${escHtml(d.settlement || '')}" data-settlement-with-type="${escHtml(d.settlement_with_type || '')}" data-area-with-type="${escHtml(d.area_with_type || '')}" data-city-district-with-type="${escHtml(d.city_district_with_type || '')}" data-street="${escHtml(d.street || '')}" data-street-with-type="${escHtml(d.street_with_type || '')}" data-house="${escHtml(d.house || '')}" data-city-fias="${escHtml(d.city_fias_id || '')}" data-settlement-fias="${escHtml(d.settlement_fias_id || '')}" data-street-fias="${escHtml(d.street_fias_id || '')}"><div class="oe-suggestion-value">${highlight(s.value || '', query)}</div></div>`;
+    }).join('');
+
+    list.querySelectorAll('.oe-suggestions-item').forEach(el => {
+      el.addEventListener('click', async () => {
+        const fiasLevel = (el.dataset.fiasLevel || '').trim();
+        const fiasLevelNum = parseInt(fiasLevel, 10);
+        const state = input.addressState || {};
+
+        const isLocalityLevel = [1, 3, 4, 5, 6].includes(fiasLevelNum);
+        const hasLocalityData = !!(el.dataset.city || el.dataset.settlement || el.dataset.cityWithType || el.dataset.settlementWithType);
+        if (isLocalityLevel && hasLocalityData) {
+          const isSettlement = fiasLevelNum === 5 || fiasLevelNum === 6;
+          const localityCore = isSettlement
+            ? (el.dataset.settlementWithType || el.dataset.settlement || el.dataset.cityWithType || el.dataset.city)
+            : (el.dataset.cityWithType || el.dataset.city || el.dataset.settlementWithType || el.dataset.settlement);
+          const localityName = buildOrderLocalityLabel(el.dataset, localityCore);
+          state.cityName = localityName;
+          state.cityFiasId = el.dataset.cityFias || el.dataset.fiasId || el.dataset.regionFias || '';
+          state.settlementFiasId = el.dataset.settlementFias || '';
+          state.streetFiasId = null;
+          state.streetName = '';
+          state.houseName = '';
+          input.value = localityName ? `${localityName}, ` : '';
+          updateHint();
+          close();
+          setTimeout(() => input.dispatchEvent(new Event('input', { bubbles: true })), 80);
+          return;
+        }
+
+        const isStreetLevel = fiasLevelNum === 7;
+        const isHouseLevel = fiasLevelNum === 8 || (!!el.dataset.house && !!state.streetFiasId);
+        if (isStreetLevel) {
+          state.streetName = el.dataset.streetWithType || el.dataset.street || '';
+          state.streetFiasId = el.dataset.streetFias || '';
+          input.value = `${state.cityName || ''}${state.cityName ? ', ' : ''}${state.streetName || ''}, `;
+          updateHint();
+          close();
+          setTimeout(() => input.dispatchEvent(new Event('input', { bubbles: true })), 80);
+          return;
+        }
+
+        if (isHouseLevel) {
+          const confirmed = await confirmOrderHouseSelection(el.dataset.unrestricted || el.dataset.value || '');
+          if (confirmed && confirmed.valid === false) {
+            close();
+            return;
+          }
+
+          const selectedData = confirmed?.valid ? (confirmed.suggestion?.data || {}) : null;
+          let house = selectedData?.house || el.dataset.house;
+          if (house && !/^д\s/i.test(house) && !/^дом\s/i.test(house)) {
+            house = `д ${house.replace(/^д/i, '').trim()}`;
+          }
+
+          state.houseName = house || '';
+          const cityLabel = state.cityName || el.dataset.cityWithType || el.dataset.city || el.dataset.settlementWithType || el.dataset.settlement || '';
+          const streetLabel = state.streetName || el.dataset.streetWithType || el.dataset.street || '';
+          const compact = [cityLabel, streetLabel, house].filter(Boolean).join(', ');
+          const fullAddress = confirmed?.valid
+            ? (confirmed.suggestion?.unrestricted_value || confirmed.suggestion?.value || el.dataset.unrestricted || el.dataset.value || '')
+            : (el.dataset.unrestricted || el.dataset.value || '');
+
+          input.value = compact || fullAddress;
+          input.dataset.fullAddress = fullAddress;
+          input.dataset.lat = selectedData?.geo_lat || el.dataset.lat || '';
+          input.dataset.lon = selectedData?.geo_lon || el.dataset.lon || '';
+          clearOrderAddressValidationError(input);
+          close();
+          hint?.classList.remove('show');
+
+          const orderId = parseInt(input.dataset.orderId || '', 10);
+          if (Number.isFinite(orderId) && isOrderAddressComplete(input)) {
+            const ok = await saveOrderEdits(orderId, { silent: true, skipReopen: true });
+            if (ok) showToast('Изменения сохранены', 'success');
+          }
+          return;
+        }
+
+        close();
+      });
+    });
+
+    list.classList.add('open');
+  };
+
+  updateHint();
+
+  input.addEventListener('input', () => {
+    const q = String(input.value || '').trim();
+    detectOrderAddressStateChange(input);
+    updateHint();
+    if (timer) clearTimeout(timer);
+    if (q.length < 2) {
+      close();
+      return;
+    }
+    timer = setTimeout(async () => {
+      try {
+        const requestBody = { query: q, count: 10, restrict_value: true };
+        if (input.addressState?.streetFiasId) {
+          requestBody.locations = [{ street_fias_id: input.addressState.streetFiasId }];
+          requestBody.from_bound = { value: 'house' };
+          requestBody.to_bound = { value: 'house' };
+        } else if (input.addressState?.settlementFiasId) {
+          requestBody.locations = [{ settlement_fias_id: input.addressState.settlementFiasId }];
+          requestBody.from_bound = { value: 'street' };
+          requestBody.to_bound = { value: 'street' };
+        } else if (input.addressState?.cityFiasId) {
+          requestBody.locations = [{ city_fias_id: input.addressState.cityFiasId }];
+          requestBody.from_bound = { value: 'street' };
+          requestBody.to_bound = { value: 'street' };
+        } else {
+          const hasStructuredAddress = q.includes(',');
+          if (!hasStructuredAddress) {
+            requestBody.from_bound = { value: 'city' };
+            requestBody.to_bound = { value: 'settlement' };
+          }
+        }
+
+        if (activeController) activeController.abort();
+        activeController = new AbortController();
+        const currentReqSeq = ++reqSeq;
+        const r = await fetch(`${API}/api/dadata/suggest`, {
+          method: 'POST',
+          headers: {
+            'x-api-key': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+          signal: activeController.signal,
+        });
+        if (currentReqSeq < lastAppliedSeq) return;
+        lastAppliedSeq = currentReqSeq;
+        const data = await r.json().catch(() => ({}));
+        const items = Array.isArray(data.suggestions) ? data.suggestions : [];
+        openWithSuggestions(items, q);
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+        close();
+      }
+    }, 200);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !list.contains(e.target)) close();
+  });
+}
+
+function setMedicalEscortValue(value) {
+  const normalized = String(value) === '1' ? '1' : '0';
+  const native = document.getElementById('oe_medical_escort');
+  const btn = document.getElementById('oe_medical_escort_btn');
+  const list = document.getElementById('oe_medical_escort_list');
+  if (native) native.value = normalized;
+  if (!btn || !list) return;
+  const active = list.querySelector(`.custom-select-option[data-value="${normalized}"]`);
+  if (active) btn.textContent = active.textContent;
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    const isActive = opt.dataset.value === normalized;
+    opt.classList.toggle('active', isActive);
+    opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+}
+
+function initMedicalEscortDropdown() {
+  const root = document.getElementById('oe_medical_escort_custom');
+  const btn = document.getElementById('oe_medical_escort_btn');
+  const list = document.getElementById('oe_medical_escort_list');
+  if (!root || !btn || !list) return;
+  setMedicalEscortValue(document.getElementById('oe_medical_escort')?.value || '0');
+
+  btn.addEventListener('click', () => {
+    const willOpen = !root.classList.contains('open');
+    root.classList.toggle('open', willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    opt.tabIndex = -1;
+    opt.addEventListener('click', () => {
+      setMedicalEscortValue(opt.dataset.value);
+      root.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!root.contains(e.target)) {
+      root.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+function updateOrdersFilterUi() {
+  const ph = document.querySelector('.ph h2');
+  if (ph) {
+    ph.textContent = curPhoneFilter ? `Заявки: ${curPhoneFilter}` : 'Заявки';
+  }
+  const clearBtn = document.getElementById('clearOrdersFilters');
+  if (clearBtn) clearBtn.style.display = (curFilter || curPhoneFilter || curArchived) ? 'inline-flex' : 'none';
+}
+
+function clearOrdersFilters() {
+  curFilter = null;
+  curArchived = false;
+  curPhoneFilter = null;
+  curPage = 1;
+  document.querySelectorAll('.fb').forEach(b => b.classList.remove('active'));
+  const allBtn = document.querySelector('.fb');
+  if (allBtn) allBtn.classList.add('active');
+  updateOrdersFilterUi();
+  loadOrders();
+}
 
 function showApp(key) {
   apiKey = key;
@@ -344,11 +1137,309 @@ function showApp(key) {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('akDisplay').textContent = key.slice(0,8)+'...';
-  document.getElementById('tgApiKeyHint').textContent = key;
+  initWidgetDisplayModeDropdown();
+  initLoyaltyEnabledDropdown();
+  initRoundTripTypeDropdown();
   loadOrders(); loadAllPricing(); loadIntegrations(); loadLoyaltySettings();
   // Восстанавливаем последнюю вкладку
   const lastPage = sessionStorage.getItem('adminPage') || 'orders';
   showPage(lastPage);
+}
+
+function setWidgetDisplayModeValue(mode) {
+  const value = mode === 'drawer_only' ? 'drawer_only' : 'page_only';
+  const native = document.getElementById('cf_widget_display_mode');
+  const btn = document.getElementById('cf_widget_display_mode_btn');
+  const list = document.getElementById('cf_widget_display_mode_list');
+  if (native) native.value = value;
+  if (!btn || !list) return;
+  const activeOption = list.querySelector(`.custom-select-option[data-value="${value}"]`);
+  if (activeOption) btn.textContent = activeOption.textContent;
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    const isActive = opt.dataset.value === value;
+    opt.classList.toggle('active', isActive);
+    opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+}
+
+function initWidgetDisplayModeDropdown() {
+  const root = document.getElementById('cf_widget_display_mode_custom');
+  const btn = document.getElementById('cf_widget_display_mode_btn');
+  const list = document.getElementById('cf_widget_display_mode_list');
+  if (!root || !btn || !list) return;
+
+  const close = () => {
+    root.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  const open = () => {
+    root.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+  };
+  const focusActiveOrFirst = () => {
+    const active = list.querySelector('.custom-select-option.active') || list.querySelector('.custom-select-option');
+    if (active) active.focus();
+  };
+
+  btn.addEventListener('click', () => {
+    const willOpen = !root.classList.contains('open');
+    if (willOpen) {
+      open();
+      requestAnimationFrame(focusActiveOrFirst);
+    } else {
+      close();
+    }
+  });
+
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+      requestAnimationFrame(focusActiveOrFirst);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  });
+
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    opt.tabIndex = -1;
+    opt.addEventListener('click', () => {
+      setWidgetDisplayModeValue(opt.dataset.value);
+      close();
+    });
+    opt.addEventListener('keydown', (e) => {
+      const items = Array.from(list.querySelectorAll('.custom-select-option'));
+      const idx = items.indexOf(opt);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        (items[Math.min(idx + 1, items.length - 1)] || opt).focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        (items[Math.max(idx - 1, 0)] || opt).focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        opt.click();
+        btn.focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        btn.focus();
+      }
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!root.contains(e.target)) {
+      close();
+    }
+  });
+
+  setWidgetDisplayModeValue(document.getElementById('cf_widget_display_mode')?.value || 'page_only');
+}
+
+function setLoyaltyEnabledValue(value) {
+  const normalized = String(value) === '1' ? '1' : '0';
+  const native = document.getElementById('l_enabled');
+  const btn = document.getElementById('l_enabled_btn');
+  const list = document.getElementById('l_enabled_list');
+  if (native) native.value = normalized;
+  if (!btn || !list) return;
+  const activeOption = list.querySelector(`.custom-select-option[data-value="${normalized}"]`);
+  if (activeOption) btn.textContent = activeOption.textContent;
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    const isActive = opt.dataset.value === normalized;
+    opt.classList.toggle('active', isActive);
+    opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+}
+
+function initLoyaltyEnabledDropdown() {
+  const root = document.getElementById('l_enabled_custom');
+  const btn = document.getElementById('l_enabled_btn');
+  const list = document.getElementById('l_enabled_list');
+  if (!root || !btn || !list) return;
+
+  const close = () => {
+    root.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  const open = () => {
+    root.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+  };
+  const focusActiveOrFirst = () => {
+    const active = list.querySelector('.custom-select-option.active') || list.querySelector('.custom-select-option');
+    if (active) active.focus();
+  };
+
+  btn.addEventListener('click', () => {
+    const willOpen = !root.classList.contains('open');
+    if (willOpen) {
+      open();
+      requestAnimationFrame(focusActiveOrFirst);
+    } else {
+      close();
+    }
+  });
+
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+      requestAnimationFrame(focusActiveOrFirst);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  });
+
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    opt.tabIndex = -1;
+    opt.addEventListener('click', () => {
+      setLoyaltyEnabledValue(opt.dataset.value);
+      close();
+    });
+    opt.addEventListener('keydown', (e) => {
+      const items = Array.from(list.querySelectorAll('.custom-select-option'));
+      const idx = items.indexOf(opt);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        (items[Math.min(idx + 1, items.length - 1)] || opt).focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        (items[Math.max(idx - 1, 0)] || opt).focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        opt.click();
+        btn.focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        btn.focus();
+      }
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!root.contains(e.target)) {
+      close();
+    }
+  });
+
+  setLoyaltyEnabledValue(document.getElementById('l_enabled')?.value || '0');
+}
+
+function setRoundTripTypeValue(value) {
+  const normalized = String(value) === '1' ? '1' : '0';
+  const native = document.getElementById('p_round_trip_type');
+  const btn = document.getElementById('p_round_trip_type_btn');
+  const list = document.getElementById('p_round_trip_type_list');
+  if (native) native.value = normalized;
+  if (!btn || !list) {
+    updateRtHint();
+    return;
+  }
+  const activeOption = list.querySelector(`.custom-select-option[data-value="${normalized}"]`);
+  if (activeOption) btn.textContent = activeOption.textContent;
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    const isActive = opt.dataset.value === normalized;
+    opt.classList.toggle('active', isActive);
+    opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+  updateRtHint();
+}
+
+function initRoundTripTypeDropdown() {
+  const root = document.getElementById('p_round_trip_type_custom');
+  const btn = document.getElementById('p_round_trip_type_btn');
+  const list = document.getElementById('p_round_trip_type_list');
+  if (!root || !btn || !list) return;
+
+  const close = () => {
+    root.classList.remove('open');
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  const open = () => {
+    root.classList.add('open');
+    btn.setAttribute('aria-expanded', 'true');
+  };
+  const focusActiveOrFirst = () => {
+    const active = list.querySelector('.custom-select-option.active') || list.querySelector('.custom-select-option');
+    if (active) active.focus();
+  };
+
+  btn.addEventListener('click', () => {
+    const willOpen = !root.classList.contains('open');
+    if (willOpen) {
+      open();
+      requestAnimationFrame(focusActiveOrFirst);
+    } else {
+      close();
+    }
+  });
+
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      open();
+      requestAnimationFrame(focusActiveOrFirst);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      close();
+    }
+  });
+
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    opt.tabIndex = -1;
+    opt.addEventListener('click', () => {
+      setRoundTripTypeValue(opt.dataset.value);
+      close();
+    });
+    opt.addEventListener('keydown', (e) => {
+      const items = Array.from(list.querySelectorAll('.custom-select-option'));
+      const idx = items.indexOf(opt);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        (items[Math.min(idx + 1, items.length - 1)] || opt).focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        (items[Math.max(idx - 1, 0)] || opt).focus();
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        opt.click();
+        btn.focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        close();
+        btn.focus();
+      }
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!root.contains(e.target)) {
+      close();
+    }
+  });
+
+  setRoundTripTypeValue(document.getElementById('p_round_trip_type')?.value || '0');
+}
+
+function saveWidgetDisplayMode() {
+  const mode = document.getElementById('cf_widget_display_mode').value || 'page_only';
+  fetch(`${API}/api/calculator-fields`, {
+    method:'PUT',
+    headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify({ widget_display_mode: mode })
+  }).then(r => r.json()).then(d => {
+    if (d.success) {
+      flashMsg('cfsm_mode');
+      showToast('Режим отображения сохранён', 'success');
+    } else {
+      showToast(d.error || 'Ошибка', 'error');
+    }
+  }).catch(() => showToast('Ошибка', 'error'));
 }
 
 function login() {
@@ -394,6 +1485,12 @@ function showPage(name) {
   document.getElementById('nav-'+name).classList.add('active');
   sessionStorage.setItem('adminPage', name);
   if (name === 'loyalty') loadLoyaltyCustomers();
+  if (name === 'integrations' && apiKey) {
+    loadIntegrations();
+  }
+  if (name === 'fields' && apiKey) {
+    loadCalculatorFields();
+  }
 }
 
 // ── PHONE HELPERS ─────────────────────────────────────────────────────────────
@@ -416,18 +1513,20 @@ function loadLoyaltySettings() {
   fetch(`${API}/api/loyalty/settings`, {headers:{'x-api-key':apiKey}})
     .then(r => r.json())
     .then(d => {
-      document.getElementById('l_enabled').value = d.loyalty_enabled || 0;
+      setLoyaltyEnabledValue(d.loyalty_enabled || 0);
       document.getElementById('l_percent').value = d.loyalty_percent || 5;
+      document.getElementById('l_max_usage_percent').value = d.loyalty_max_usage_percent ?? 100;
     }).catch(() => {});
 }
 
 function saveLoyaltySettings() {
   const enabled = parseInt(document.getElementById('l_enabled').value);
   const percent = parseFloat(document.getElementById('l_percent').value);
+  const maxUsagePercent = parseFloat(document.getElementById('l_max_usage_percent').value);
   fetch(`${API}/api/loyalty/settings`, {
     method: 'PUT',
     headers: {'x-api-key': apiKey, 'Content-Type': 'application/json'},
-    body: JSON.stringify({ loyalty_enabled: enabled, loyalty_percent: percent })
+    body: JSON.stringify({ loyalty_enabled: enabled, loyalty_percent: percent, loyalty_max_usage_percent: maxUsagePercent })
   }).then(r => r.json()).then(d => {
     if (d.success) showToast('✓ Настройки сохранены', 'success');
     else showToast(d.error || 'Ошибка', 'error');
@@ -505,16 +1604,21 @@ function loadOrders(page) {
   document.getElementById('ordersWrap').innerHTML = '<div class="loader">Загрузка...</div>';
   let url = `${API}/api/orders?page=${curPage}&limit=${PER_PAGE}`;
   if (curFilter) url += `&status=${curFilter}`;
+  if (curPhoneFilter) url += `&phone=${encodeURIComponent(curPhoneFilter)}`;
+  if (curArchived) url += '&archived=1';
   fetch(url, {headers:{'x-api-key':apiKey}})
     .then(r => r.json())
-    .then(data => { renderTable(data.orders); renderPag(data.total); loadStats(); })
+    .then(data => { renderTable(data.orders); renderPag(data.total); loadStats(); updateOrdersFilterUi(); })
     .catch(e => { document.getElementById('ordersWrap').innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`; });
 }
 
-function filterOrders(status, btn) {
-  curFilter = status; curPage = 1;
+function filterOrders(status, btn, archivedOnly) {
+  curFilter = status;
+  curArchived = !!archivedOnly;
+  curPage = 1;
   document.querySelectorAll('.fb').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  updateOrdersFilterUi();
   loadOrders();
 }
 
@@ -537,8 +1641,14 @@ function renderTable(orders) {
       <td>${o.distance?o.distance+' км':'—'}</td>
       <td><strong>${o.price?Number(o.price).toLocaleString('ru-RU')+' ₽':'—'}</strong></td>
       <td><span class="badge badge-${o.status}">${sLabel(o.status)}</span></td>
+      <td>
+        ${o.archived
+          ? `<button class="btn btn-g btn-sm" onclick="event.stopPropagation();toggleOrderArchive(${o.id}, false)">↩ Из архива</button>`
+          : `<button class="btn btn-g btn-sm" onclick="event.stopPropagation();toggleOrderArchive(${o.id}, true)">🗄 В архив</button>`}
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteOrder(${o.id})">Удалить</button>
+      </td>
     </tr>`).join('');
-  wrap.innerHTML = `<table><thead><tr><th>Заявка / Дата</th><th>Контакт</th><th>Маршрут</th><th>Км</th><th>Стоимость</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>`;
+  wrap.innerHTML = `<table><thead><tr><th>Заявка / Дата</th><th>Контакт</th><th>Маршрут</th><th>Км</th><th>Стоимость</th><th>Статус</th><th>Действия</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 function renderPag(total) {
@@ -556,35 +1666,211 @@ function changePage(d) { curPage += d; loadOrders(); }
 function openOrder(jsonStr) {
   const o = JSON.parse(jsonStr);
   document.getElementById('modalTitle').textContent = `Заявка ${o.order_number||'#'+o.id}`;
+  const escAttr = (v) => String(v ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const makeOptions = (values, selected, formatter) => values.map((v) => {
+    const isSelected = String(v) === String(selected);
+    const text = formatter ? formatter(v) : String(v);
+    return `<option value="${escAttr(v)}" ${isSelected ? 'selected' : ''}>${escHtml(text)}</option>`;
+  }).join('');
+  const formatPriceInput = (v) => {
+    const num = parseFloat(v);
+    if (!Number.isFinite(num)) return '';
+    return Math.round(num).toLocaleString('ru-RU').replace(/\u00A0/g, ' ');
+  };
+  const currentWeight = Number.isFinite(parseFloat(o.weight)) ? parseFloat(o.weight) : 70;
+  const weightValues = Array.from({ length: 16 }, (_, i) => 30 + i * 10);
+  if (!weightValues.includes(currentWeight)) weightValues.push(currentWeight);
+  weightValues.sort((a, b) => a - b);
+
+  const diagnosisBaseValues = ['Инсульт', 'Перелом шейки бедра', 'Онкология', 'Инфаркт'];
+  const currentDiagnosis = String(o.diagnosis || '').trim();
+  const diagnosisValues = [...diagnosisBaseValues, 'other'];
+  const diagnosisSelectValue = diagnosisBaseValues.includes(currentDiagnosis) ? currentDiagnosis : (currentDiagnosis ? 'other' : diagnosisBaseValues[0]);
+
+  const floorValues = Array.from({ length: 11 }, (_, i) => i);
+  const tripDateTimeSource = o.trip_datetime || o.created_at;
+  const tripDateObj = tripDateTimeSource ? new Date(tripDateTimeSource) : null;
+  const tripDateInput = tripDateObj ? `${tripDateObj.getFullYear()}-${String(tripDateObj.getMonth() + 1).padStart(2, '0')}-${String(tripDateObj.getDate()).padStart(2, '0')}` : '';
+  const tripTimeInput = tripDateObj ? `${String(tripDateObj.getHours()).padStart(2, '0')}:${String(tripDateObj.getMinutes()).padStart(2, '0')}` : '';
+
+  const fieldIcon = (kind) => {
+    const map = {
+      money: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 8h18M5 6h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      datetime: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M16 2v4M8 2v4M3 9h18M5 5h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      address: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 21s7-5.1 7-11a7 7 0 1 0-14 0c0 5.9 7 11 7 11z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.7"/></svg>',
+      weight: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 8h12l2 10H4L6 8z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 8a2 2 0 1 1 4 0" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      diagnosis: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 21s-6-4.35-8.5-8.1C1.3 9.5 3.1 5 7.2 5c2 0 3.4 1 4.3 2.2C12.4 6 13.8 5 15.8 5 19.9 5 21.7 9.5 20.5 12.9 18 16.65 12 21 12 21z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      floor: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 19V5h14v14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 15h6M9 11h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>',
+      medical: '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="1.7"/></svg>',
+    };
+    return map[kind] || map.address;
+  };
+
+  const labelWithIcon = (label, kind) => `${label} <span class="field-icon" title="Редактируемое поле">${fieldIcon(kind)}</span>`;
+
+  const customSelectField = (id, value, values, formatter, listLabel) => {
+    const nativeOptions = makeOptions(values, value, formatter);
+    const customOptions = values.map((v) => {
+      const text = formatter ? formatter(v) : String(v);
+      return `<div class="custom-select-option" data-value="${escAttr(v)}" role="option">${escHtml(text)}</div>`;
+    }).join('');
+    return `<select id="${id}" class="ss ss-edit" style="display:none">${nativeOptions}</select><div class="custom-select order-field-select" id="${id}_custom"><button type="button" class="custom-select-btn" id="${id}_btn" aria-haspopup="listbox" aria-expanded="false"></button><div class="custom-select-list" id="${id}_list" role="listbox" aria-label="${escAttr(listLabel || id)}">${customOptions}</div></div>`;
+  };
+
   const r = (l,v) => v ? `<div class="mr"><span class="ml">${l}</span><span class="mv">${v}</span></div>` : '';
+  const editableRow = (l, fieldHtml, iconKind) => `<div class="mr editable-row"><span class="ml">${labelWithIcon(l, iconKind)}</span><span class="mv">${fieldHtml}</span></div>`;
   document.getElementById('modalBody').innerHTML = `
+    <div class="edit-hint"><span class="field-icon">${fieldIcon('address')}</span> Можно редактировать: статус, маршрут, стоимость, вес, диагноз, этажи</div>
     <div class="mr"><span class="ml">Статус</span>
-      <select class="ss" onchange="updateStatus(${o.id},this.value)">
-        <option value="new" ${o.status==='new'?'selected':''}>🔵 Новая</option>
-        <option value="in_progress" ${o.status==='in_progress'?'selected':''}>🟡 В работе</option>
-        <option value="completed" ${o.status==='completed'?'selected':''}>🟢 Завершена</option>
-        <option value="cancelled" ${o.status==='cancelled'?'selected':''}>🔴 Отменена</option>
+      <select class="ss ss-edit" id="oe_status" style="display:none">
+        <option value="new" ${o.status==='new'?'selected':''}>Новая</option>
+        <option value="in_progress" ${o.status==='in_progress'?'selected':''}>В работе</option>
+        <option value="completed" ${o.status==='completed'?'selected':''}>Завершена</option>
+        <option value="cancelled" ${o.status==='cancelled'?'selected':''}>Отменена</option>
       </select>
+      <div class="custom-select order-status-select" id="oe_status_custom">
+        <button type="button" class="custom-select-btn" id="oe_status_btn" aria-haspopup="listbox" aria-expanded="false"></button>
+        <div class="custom-select-list" id="oe_status_list" role="listbox" aria-label="Статус заявки">
+          <div class="custom-select-option" data-value="new" role="option"><span class="status-dot s-new"></span><span class="status-text">Новая</span></div>
+          <div class="custom-select-option" data-value="in_progress" role="option"><span class="status-dot s-in-progress"></span><span class="status-text">В работе</span></div>
+          <div class="custom-select-option" data-value="completed" role="option"><span class="status-dot s-completed"></span><span class="status-text">Завершена</span></div>
+          <div class="custom-select-option" data-value="cancelled" role="option"><span class="status-dot s-cancelled"></span><span class="status-text">Отменена</span></div>
+        </div>
+      </div>
     </div>
-    <hr class="md">
-    ${o.phone ? `<div class="mr"><span class="ml">Телефон</span><span class="mv"><a href="#" onclick="goToClient('${o.phone}');return false;" style="color:var(--accent);text-decoration:none;font-weight:600">${formatPhone(o.phone)}</a></span></div>` : ''}${r('Email',o.customer_email)}${r('Имя',o.customer_name)}
-    <hr class="md">
-    ${r('Откуда',o.from_address)}${r('Куда',o.to_address)}${r('Расстояние',o.distance?o.distance+' км':null)}
-    <hr class="md">
-    ${r('Стоимость',o.price?Number(o.price).toLocaleString('ru-RU')+' ₽':null)}
-    ${r('Вес',o.weight?o.weight+' кг':null)}
-    ${r('Диагноз',o.diagnosis)}
-    ${o.floor_descent !== undefined && o.floor_descent !== null ? r('⬇️ Спуск без лифта', o.floor_descent === 0 ? 'Не нужен' : o.floor_descent + ' эт.') : ''}
-    ${o.floor_ascent !== undefined && o.floor_ascent !== null ? r('⬆️ Подъём без лифта', o.floor_ascent === 0 ? 'Не нужен' : o.floor_ascent + ' эт.') : ''}
-    ${o.medical_escort?r('Мед. сопровождение','✓'):''}
-    ${o.need_oxygen?r('Кислород','✓'):''}
-    ${o.escort_count > 0 ? r('Сопровождение', o.escort_count + ' чел.') : ''}
-    ${o.round_trip?r('Туда-обратно','✓'):''}
-    ${r('Оплата',o.payment_method)}${r('Комментарий',o.comment)}
-    <hr class="md">
-    ${r('Дата заявки',fmtDate(o.created_at))}
+    <div class="oe-section oe-section-contacts">
+      <div class="oe-section-title">Контакт и заказ</div>
+      ${o.phone ? `<div class="mr"><span class="ml">Телефон</span><span class="mv"><a href="#" onclick="goToClient('${o.phone}');return false;" style="color:var(--accent);text-decoration:none;font-weight:600">${formatPhone(o.phone)}</a></span></div>` : ''}
+      ${r('Email',o.customer_email)}
+      ${r('Имя',o.customer_name)}
+      ${editableRow('Стоимость', wrapWithModalClearBtn('oe_price', `<input id="oe_price" class="oe-input" type="text" inputmode="numeric" value="${escAttr(formatPriceInput(o.price))}">`), 'money')}
+      ${r('Дата заявки', fmtDate(o.created_at))}
+      ${editableRow('Дата и время поездки', `<div class="oe-trip-datetime-row"><input id="oe_trip_date" class="oe-input" type="date" value="${escAttr(tripDateInput)}"><input id="oe_trip_time" class="oe-input" type="time" value="${escAttr(tripTimeInput)}"></div>`, 'datetime')}
+    </div>
+
+    <div class="oe-section oe-section-addresses">
+      <div class="oe-section-title">Маршрут</div>
+      ${editableRow('Откуда', `<div class="oe-suggestions">${wrapWithModalClearBtn('oe_from_address', `<input id="oe_from_address" class="oe-input" type="text" value="${escAttr(o.from_address)}">`)}<div id="oe_from_suggestions" class="oe-suggestions-list"></div><div class="oe-address-hint" id="oe_from_address_hint"></div><div class="oe-address-validation" id="oe_from_address_validation"></div></div>`, 'address')}
+      ${editableRow('Куда', `<div class="oe-suggestions">${wrapWithModalClearBtn('oe_to_address', `<input id="oe_to_address" class="oe-input" type="text" value="${escAttr(o.to_address)}">`)}<div id="oe_to_suggestions" class="oe-suggestions-list"></div><div class="oe-address-hint" id="oe_to_address_hint"></div><div class="oe-address-validation" id="oe_to_address_validation"></div></div>`, 'address')}
+      <div class="mr"><span class="ml">Расстояние</span><span class="mv" id="oe_distance_value">${o.distance ? `${o.distance} км` : '—'}</span></div>
+    </div>
+
+    <div class="oe-section oe-section-medical">
+      <div class="oe-section-title">Параметры перевозки</div>
+      <div class="oe-grid-2">
+        ${editableRow('Вес', customSelectField('oe_weight', currentWeight, weightValues, (v) => `${String(v).replace('.', ',')} кг`, 'Вес'), 'weight')}
+        ${editableRow('Диагноз', customSelectField('oe_diagnosis', diagnosisSelectValue, diagnosisValues, (v) => v === 'other' ? 'Свой вариант' : String(v), 'Диагноз'), 'diagnosis')}
+      </div>
+      <div class="mr editable-row" id="oe_diagnosis_custom_row" style="display:none"><span class="ml">${labelWithIcon('Укажите диагноз', 'diagnosis')}</span><span class="mv">${wrapWithModalClearBtn('oe_diagnosis_custom', `<input id="oe_diagnosis_custom" class="oe-input" type="text" value="${escAttr(diagnosisSelectValue === 'other' ? currentDiagnosis : '')}">`)}</span></div>
+      <div class="oe-grid-2">
+        ${editableRow('<span class="floor-label"><span class="floor-icon">↓</span>Спуск</span>', customSelectField('oe_floor_descent', Number.isFinite(parseInt(o.floor_descent, 10)) ? parseInt(o.floor_descent, 10) : 0, floorValues, (v) => v === 0 ? 'Не нужен' : `${v} этаж`, 'Спуск без лифта'), 'floor')}
+        ${editableRow('<span class="floor-label"><span class="floor-icon">↑</span>Подъём</span>', customSelectField('oe_floor_ascent', Number.isFinite(parseInt(o.floor_ascent, 10)) ? parseInt(o.floor_ascent, 10) : 0, floorValues, (v) => v === 0 ? 'Не нужен' : `${v} этаж`, 'Подъём без лифта'), 'floor')}
+      </div>
+    </div>
+
+    <div class="oe-section oe-section-options">
+      <div class="oe-section-title">Дополнительные опции</div>
+      ${editableRow('Мед. сопровождение', `<select id="oe_medical_escort" class="ss ss-edit" style="display:none"><option value="1" ${o.medical_escort ? 'selected' : ''}>Да</option><option value="0" ${!o.medical_escort ? 'selected' : ''}>Нет</option></select><div class="custom-select order-medical-select" id="oe_medical_escort_custom"><button type="button" class="custom-select-btn" id="oe_medical_escort_btn" aria-haspopup="listbox" aria-expanded="false"></button><div class="custom-select-list" id="oe_medical_escort_list" role="listbox" aria-label="Мед сопровождение"><div class="custom-select-option" data-value="1" role="option">Да</div><div class="custom-select-option" data-value="0" role="option">Нет</div></div></div>`, 'medical')}
+      ${o.need_oxygen ? r('Кислород', '✓') : ''}
+      ${o.escort_count > 0 ? r('Сопровождение', o.escort_count + ' чел.') : ''}
+      ${o.round_trip ? r('Туда-обратно', '✓') : ''}
+      ${r('Оплата', o.payment_method)}
+      ${r('Комментарий', o.comment)}
+    </div>
+    <div class="oe-actions">
+      <button class="btn btn-p btn-sm" onclick="saveOrderEdits(${o.id}, { skipReopen: true })">💾 Сохранить все изменения</button>
+      ${o.archived
+        ? `<button class="btn btn-g btn-sm" onclick="toggleOrderArchive(${o.id}, false)">↩ Из архива</button>`
+        : `<button class="btn btn-g btn-sm" onclick="toggleOrderArchive(${o.id}, true)">🗄 В архив</button>`}
+      <button class="btn btn-danger btn-sm" onclick="deleteOrder(${o.id})">Удалить</button>
+    </div>
   `;
+  initOrderStatusDropdown(o.id, o.status);
+  initMedicalEscortDropdown();
+  initOrderBasicCustomSelect('oe_weight');
+  initOrderBasicCustomSelect('oe_floor_descent');
+  initOrderBasicCustomSelect('oe_floor_ascent');
+  initOrderBasicCustomSelect('oe_diagnosis', () => updateOrderDiagnosisCustomVisibility());
+  updateOrderDiagnosisCustomVisibility();
+  initOrderAddressSuggest('oe_from_address', 'oe_from_suggestions');
+  initOrderAddressSuggest('oe_to_address', 'oe_to_suggestions');
+  setupModalClearButton('oe_price_clear', 'oe_price');
+  setupModalClearButton('oe_from_address_clear', 'oe_from_address', () => {
+    const input = document.getElementById('oe_from_address');
+    resetOrderAddressState(input);
+    clearOrderAddressValidationError(input);
+  });
+  setupModalClearButton('oe_to_address_clear', 'oe_to_address', () => {
+    const input = document.getElementById('oe_to_address');
+    resetOrderAddressState(input);
+    clearOrderAddressValidationError(input);
+  });
+  setupModalClearButton('oe_diagnosis_custom_clear', 'oe_diagnosis_custom');
+  const fromAddressInput = document.getElementById('oe_from_address');
+  const toAddressInput = document.getElementById('oe_to_address');
+  if (fromAddressInput) fromAddressInput.dataset.orderId = String(o.id);
+  if (toAddressInput) toAddressInput.dataset.orderId = String(o.id);
+  initOrderPriceMask();
+  initOrderModalAutosave(o.id);
   document.getElementById('orderModal').classList.add('open');
+}
+
+function setOrderStatusValue(value) {
+  const normalized = ['new', 'in_progress', 'completed', 'cancelled'].includes(String(value)) ? String(value) : 'new';
+  const native = document.getElementById('oe_status');
+  const btn = document.getElementById('oe_status_btn');
+  const list = document.getElementById('oe_status_list');
+  if (native) native.value = normalized;
+  if (!btn || !list) return;
+  const active = list.querySelector(`.custom-select-option[data-value="${normalized}"]`);
+  if (active) {
+    btn.innerHTML = active.innerHTML;
+  }
+  btn.setAttribute('data-status', normalized);
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    const isActive = opt.dataset.value === normalized;
+    opt.classList.toggle('active', isActive);
+    opt.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+}
+
+function initOrderStatusDropdown(orderId, currentStatus) {
+  const root = document.getElementById('oe_status_custom');
+  const btn = document.getElementById('oe_status_btn');
+  const list = document.getElementById('oe_status_list');
+  if (!root || !btn || !list) return;
+  setOrderStatusValue(currentStatus);
+
+  btn.addEventListener('click', () => {
+    const willOpen = !root.classList.contains('open');
+    root.classList.toggle('open', willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+
+  btn.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      root.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  list.querySelectorAll('.custom-select-option').forEach(opt => {
+    opt.tabIndex = -1;
+    opt.addEventListener('click', () => {
+      const value = opt.dataset.value;
+      setOrderStatusValue(value);
+      root.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+      updateStatus(orderId, value);
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!root.contains(e.target)) {
+      root.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
+    }
+  });
 }
 
 function closeModal(e) { if(e.target.id==='orderModal') document.getElementById('orderModal').classList.remove('open'); }
@@ -598,24 +1884,19 @@ function goToClient(phone) {
 
 function goToOrders(phone) {
   showPage('orders');
-  curFilter = null; curPage = 1;
+  curFilter = null; curArchived = false; curPhoneFilter = normalizePhoneForFilter(phone); curPage = 1;
   document.querySelectorAll('.fb').forEach(b => b.classList.remove('active'));
-  document.querySelector('.fb').classList.add('active');
+  const allBtn = document.querySelector('.fb');
+  if (allBtn) allBtn.classList.add('active');
   // Загружаем заявки с фильтром по телефону
-  loadOrdersByPhone(phone);
+  loadOrdersByPhone(curPhoneFilter || phone);
 }
 
 function loadOrdersByPhone(phone) {
-  document.getElementById('ordersWrap').innerHTML = '<div class="loader">Загрузка...</div>';
-  fetch(`${API}/api/orders?page=1&limit=100&phone=${encodeURIComponent(phone)}`, {headers:{'x-api-key':apiKey}})
-    .then(r => r.json())
-    .then(data => {
-      renderTable(data.orders);
-      renderPag(data.total);
-      const ph = document.querySelector('.ph h2');
-      if (ph) ph.textContent = `Заявки: ${phone}`;
-    })
-    .catch(e => { document.getElementById('ordersWrap').innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`; });
+  curPhoneFilter = normalizePhoneForFilter(phone);
+  curPage = 1;
+  updateOrdersFilterUi();
+  loadOrders();
 }
 
 function updateStatus(id, status) {
@@ -626,6 +1907,92 @@ function updateStatus(id, status) {
     .catch(()=>showToast('Ошибка','error'));
 }
 
+async function saveOrderEdits(id, options) {
+  const opts = options || {};
+  const fromAddressInput = document.getElementById('oe_from_address');
+  const toAddressInput = document.getElementById('oe_to_address');
+  const isSilent = !!opts.silent;
+  const rawPrice = (document.getElementById('oe_price')?.value || '').replace(/\s+/g, '').replace(/,/g, '.');
+  const price = parseFloat(rawPrice);
+  const weight = parseFloat(document.getElementById('oe_weight')?.value || '0');
+  const floorDescent = parseInt(document.getElementById('oe_floor_descent')?.value || '0', 10);
+  const floorAscent = parseInt(document.getElementById('oe_floor_ascent')?.value || '0', 10);
+  const diagnosisSelectValue = document.getElementById('oe_diagnosis')?.value || '';
+  const diagnosisCustomValue = String(document.getElementById('oe_diagnosis_custom')?.value || '').trim();
+  const diagnosisValue = diagnosisSelectValue === 'other' ? diagnosisCustomValue : diagnosisSelectValue;
+  if (!diagnosisValue) {
+    if (!opts.silent) showToast('Укажите диагноз', 'error');
+    return false;
+  }
+
+  const tripDate = String(document.getElementById('oe_trip_date')?.value || '').trim();
+  const tripTime = String(document.getElementById('oe_trip_time')?.value || '').trim();
+  const tripDateTime = tripDate && tripTime ? `${tripDate}T${tripTime}:00` : null;
+
+  const payload = {
+    diagnosis: diagnosisValue,
+    price: Number.isFinite(price) ? price : 0,
+    weight: Number.isFinite(weight) ? weight : 0,
+    floor_descent: Number.isFinite(floorDescent) ? Math.max(0, floorDescent) : 0,
+    floor_ascent: Number.isFinite(floorAscent) ? Math.max(0, floorAscent) : 0,
+    medical_escort: document.getElementById('oe_medical_escort')?.value === '1',
+    trip_datetime: tripDateTime,
+  };
+
+  const fromComplete = isOrderAddressComplete(fromAddressInput);
+  const toComplete = isOrderAddressComplete(toAddressInput);
+
+  if (fromComplete) {
+    payload.from_address = fromAddressInput.dataset.fullAddress || fromAddressInput.value || '';
+  } else if (!isSilent) {
+    payload.from_address = fromAddressInput?.value || '';
+  }
+
+  if (toComplete) {
+    payload.to_address = toAddressInput.dataset.fullAddress || toAddressInput.value || '';
+  } else if (!isSilent) {
+    payload.to_address = toAddressInput?.value || '';
+  }
+
+  try {
+    const r = await fetch(`${API}/api/orders/${id}`, {
+      method:'PATCH',
+      headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.success) throw new Error(data.error || `HTTP ${r.status}`);
+
+    if (fromComplete && toComplete) {
+      const distLabel = document.getElementById('oe_distance_value');
+      if (distLabel) distLabel.textContent = 'Пересчитываем...';
+      try {
+        const distance = await recalcOrderDistanceIfPossible();
+        if (Number.isFinite(distance)) {
+          await fetch(`${API}/api/orders/${id}`, {
+            method: 'PATCH',
+            headers: {'x-api-key': apiKey, 'Content-Type': 'application/json'},
+            body: JSON.stringify({ distance }),
+          });
+        } else if (distLabel) {
+          distLabel.textContent = '—';
+        }
+      } catch {
+        if (distLabel) distLabel.textContent = '—';
+        // Не блокируем сохранение, если не удалось пересчитать дистанцию.
+      }
+    }
+
+    if (!opts.silent) showToast('Заявка обновлена', 'success');
+    loadOrders();
+    if (!opts.skipReopen && data.order) openOrder(JSON.stringify(data.order));
+    return true;
+  } catch (e) {
+    if (!opts.silent) showToast(e.message || 'Ошибка', 'error');
+    return false;
+  }
+}
+
 // ── PRICING: LOAD ALL ─────────────────────────────────
 function loadAllPricing() {
   const h = {'x-api-key': apiKey};
@@ -634,7 +2001,8 @@ function loadAllPricing() {
     fetch(`${API}/api/company`, {headers:h}).then(r=>r.json()),
     fetch(`${API}/api/pricing/floor-tiers`, {headers:h}).then(r=>r.json()),
     fetch(`${API}/api/pricing/city-rates`, {headers:h}).then(r=>r.json()),
-  ]).then(([pricing, company, tiers, cities]) => {
+    fetch(`${API}/api/calculator-fields`, {headers:h}).then(r=>r.json()).catch(()=>({fields:{}})),
+  ]).then(([pricing, company, tiers, cities, fields]) => {
     const c = pricing.cache || {};
     ['per_km','base_fixed_add','base_coeff','waiting_30min','oxygen_fee','no_escort_fee'].forEach(k => {
       const el = document.getElementById('p_'+k);
@@ -644,31 +2012,136 @@ function loadAllPricing() {
     const rtValEl  = document.getElementById('p_round_trip_value');
     if (rtTypeEl) rtTypeEl.value = c.round_trip_type !== undefined ? c.round_trip_type : 0;
     if (rtValEl)  rtValEl.value  = c.round_trip_value !== undefined ? c.round_trip_value : 80;
+    setRoundTripTypeValue(rtTypeEl?.value || '0');
     updateRtHint();
     const s = company.settings || {};
     document.getElementById('c_base_address').value  = s.base_address  || '';
     document.getElementById('c_base_coords').value   = s.base_coords   || '';
+    loadedCompanyBaseAddress = String(s.base_address || '').trim();
+    loadedCompanyBaseCoords = String(s.base_coords || '').trim();
     document.getElementById('c_policy_url').value    = s.policy_url    || '';
     document.getElementById('c_agreement_url').value = s.agreement_url || '';
     renderTiers('descent', (tiers.tiers && tiers.tiers.descent) || []);
     renderTiers('ascent',  (tiers.tiers && tiers.tiers.ascent)  || []);
     renderCityRates(cities.rates || []);
+    const f = fields.fields || {};
+    document.getElementById('cf_medical_escort').checked = f.medical_escort !== false;
+    document.getElementById('cf_need_oxygen').checked = f.need_oxygen !== false;
+    document.getElementById('cf_email').checked = f.email !== false;
+    document.getElementById('cf_comment').checked = f.comment !== false;
+    document.getElementById('cf_diagnosis').checked = f.diagnosis !== false;
+    document.getElementById('cf_escort_count').checked = f.escort_count !== false;
+    document.getElementById('cf_round_trip').checked = f.round_trip !== false;
+    document.getElementById('cf_trip_date').checked = f.trip_date !== false;
+    const mode = fields.widget_display_mode;
+    setWidgetDisplayModeValue(mode);
   }).catch(()=>{});
 }
 
-// ── COMPANY ───────────────────────────────────────────
-function saveCompany() {
+function loadCalculatorFields() {
+  fetch(`${API}/api/calculator-fields`, { headers: {'x-api-key': apiKey} })
+    .then(r => r.json())
+    .then(data => {
+      const f = data.fields || {};
+      document.getElementById('cf_medical_escort').checked = f.medical_escort !== false;
+      document.getElementById('cf_need_oxygen').checked = f.need_oxygen !== false;
+      document.getElementById('cf_email').checked = f.email !== false;
+      document.getElementById('cf_comment').checked = f.comment !== false;
+      document.getElementById('cf_diagnosis').checked = f.diagnosis !== false;
+      document.getElementById('cf_escort_count').checked = f.escort_count !== false;
+      document.getElementById('cf_round_trip').checked = f.round_trip !== false;
+      document.getElementById('cf_trip_date').checked = f.trip_date !== false;
+      const mode = data.widget_display_mode;
+      setWidgetDisplayModeValue(mode);
+    })
+    .catch(() => {});
+}
+
+function saveCalculatorFields() {
   const body = {
-    base_address:  document.getElementById('c_base_address').value,
-    base_coords:   document.getElementById('c_base_coords').value,
+    medical_escort: document.getElementById('cf_medical_escort').checked,
+    need_oxygen: document.getElementById('cf_need_oxygen').checked,
+    email: document.getElementById('cf_email').checked,
+    comment: document.getElementById('cf_comment').checked,
+    diagnosis: document.getElementById('cf_diagnosis').checked,
+    escort_count: document.getElementById('cf_escort_count').checked,
+    round_trip: document.getElementById('cf_round_trip').checked,
+    trip_date: document.getElementById('cf_trip_date').checked,
+  };
+  fetch(`${API}/api/calculator-fields`, {
+    method:'PUT',
+    headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(r => r.json()).then(d => {
+    if (d.success) {
+      flashMsg('cfsm');
+      showToast('Поля калькулятора сохранены', 'success');
+    } else {
+      showToast(d.error || 'Ошибка', 'error');
+    }
+  }).catch(() => showToast('Ошибка', 'error'));
+}
+
+// ── COMPANY ───────────────────────────────────────────
+function parseLatLonPair(raw) {
+  const parts = String(raw || '').split(',').map(v => parseFloat(String(v).trim()));
+  if (parts.length !== 2) return null;
+  const [lat, lon] = parts;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
+async function resolveBaseCoordsByAddress(address) {
+  const query = String(address || '').trim();
+  if (!query) return null;
+  try {
+    const r = await fetch(`${API}/api/dadata/suggest`, {
+      method: 'POST',
+      headers: {'x-api-key': apiKey, 'Content-Type': 'application/json'},
+      body: JSON.stringify({ query, count: 1, restrict_value: true }),
+    });
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => ({}));
+    const s = Array.isArray(d.suggestions) ? d.suggestions[0] : null;
+    const lat = parseFloat(s?.data?.geo_lat || '');
+    const lon = parseFloat(s?.data?.geo_lon || '');
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return `${lat},${lon}`;
+  } catch {
+    return null;
+  }
+}
+
+async function saveCompany() {
+  const baseAddress = String(document.getElementById('c_base_address').value || '').trim();
+  let baseCoords = String(document.getElementById('c_base_coords').value || '').trim();
+  const addressChanged = baseAddress !== loadedCompanyBaseAddress;
+  const coordsValid = !!parseLatLonPair(baseCoords);
+  const coordsStillOld = baseCoords === loadedCompanyBaseCoords;
+
+  if (addressChanged && (!coordsValid || coordsStillOld)) {
+    const resolvedCoords = await resolveBaseCoordsByAddress(baseAddress);
+    if (resolvedCoords) {
+      baseCoords = resolvedCoords;
+      document.getElementById('c_base_coords').value = resolvedCoords;
+    }
+  }
+
+  const body = {
+    base_address:  baseAddress,
+    base_coords:   baseCoords,
     policy_url:    document.getElementById('c_policy_url').value,
     agreement_url: document.getElementById('c_agreement_url').value,
   };
   fetch(`${API}/api/company`, {
     method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
     body: JSON.stringify(body)
-  }).then(()=>{ flashMsg('csm'); showToast('Адрес сохранён','success'); })
-    .catch(()=>showToast('Ошибка','error'));
+  }).then(()=>{
+    loadedCompanyBaseAddress = baseAddress;
+    loadedCompanyBaseCoords = baseCoords;
+    flashMsg('csm');
+    showToast('Адрес сохранён','success');
+  }).catch(()=>showToast('Ошибка','error'));
 }
 
 // ── BASE PRICING ──────────────────────────────────────
@@ -767,6 +2240,7 @@ function renderCityRates(rates) {
   const wrap = document.getElementById('cityRatesWrap');
   if (!wrap) return;
   wrap.innerHTML = rates.map((r,i) => cityRow(i, r)).join('');
+  initCityRowCustomSelects();
 }
 
 function cityRow(i, r) {
@@ -792,6 +2266,78 @@ function addCityRow() {
   const div = document.createElement('div');
   div.innerHTML = cityRow(i, {city_name:'',rate_type:'percent',value:0,is_fixed_price:0,note:''});
   wrap.appendChild(div.firstElementChild);
+  initCityRowCustomSelects();
+}
+
+function initCityRowCustomSelects() {
+  const wrap = document.getElementById('cityRatesWrap');
+  if (!wrap) return;
+
+  const selects = wrap.querySelectorAll('select[id^="cr_"]');
+  selects.forEach(select => {
+    if (select.dataset.customInit === '1') return;
+    select.dataset.customInit = '1';
+    select.style.display = 'none';
+
+    const custom = document.createElement('div');
+    custom.className = 'custom-select';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'custom-select-btn';
+    btn.setAttribute('aria-haspopup', 'listbox');
+    btn.setAttribute('aria-expanded', 'false');
+
+    const list = document.createElement('div');
+    list.className = 'custom-select-list';
+    list.setAttribute('role', 'listbox');
+
+    const syncFromNative = () => {
+      const selected = select.options[select.selectedIndex];
+      btn.textContent = selected ? selected.textContent : 'Выберите';
+      list.querySelectorAll('.custom-select-option').forEach(opt => {
+        const active = opt.dataset.value === select.value;
+        opt.classList.toggle('active', active);
+        opt.setAttribute('aria-selected', active ? 'true' : 'false');
+      });
+    };
+
+    Array.from(select.options).forEach(opt => {
+      const item = document.createElement('div');
+      item.className = 'custom-select-option';
+      item.dataset.value = opt.value;
+      item.textContent = opt.textContent;
+      item.setAttribute('role', 'option');
+      item.tabIndex = -1;
+      item.addEventListener('click', () => {
+        select.value = opt.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        custom.classList.remove('open');
+        btn.setAttribute('aria-expanded', 'false');
+      });
+      list.appendChild(item);
+    });
+
+    btn.addEventListener('click', () => {
+      const willOpen = !custom.classList.contains('open');
+      wrap.querySelectorAll('.custom-select.open').forEach(openNode => {
+        if (openNode !== custom) {
+          openNode.classList.remove('open');
+          const openBtn = openNode.querySelector('.custom-select-btn');
+          if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+        }
+      });
+      custom.classList.toggle('open', willOpen);
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+
+    select.addEventListener('change', syncFromNative);
+
+    select.insertAdjacentElement('afterend', custom);
+    custom.appendChild(btn);
+    custom.appendChild(list);
+    syncFromNative();
+  });
 }
 
 function removeCityRow(i) {
@@ -815,7 +2361,7 @@ function saveCityRates() {
     });
   });
   // Удаляем старые, добавляем новые
-  fetch(`${API}/api/pricing/city-rates`)
+  fetch(`${API}/api/pricing/city-rates`, {headers:{'x-api-key':apiKey}})
     .then(r=>r.json())
     .then(async data => {
       for (const r of (data.rates||[])) {
@@ -827,7 +2373,7 @@ function saveCityRates() {
           body: JSON.stringify(r)
         });
       }
-      return fetch(`${API}/api/pricing/city-rates`).then(r=>r.json());
+      return fetch(`${API}/api/pricing/city-rates`, {headers:{'x-api-key':apiKey}}).then(r=>r.json());
     })
     .then(d => { renderCityRates(d.rates||[]); flashMsg('crsm'); showToast('Города сохранены','success'); })
     .catch(()=>showToast('Ошибка','error'));
@@ -854,9 +2400,15 @@ function flashMsg(id) {
 // ── INTEGRATIONS ──────────────────────────────────────
 function loadIntegrations() {
   fetch(`${API}/api/integrations`, {headers:{'x-api-key':apiKey}})
-    .then(r=>r.json())
+    .then(async r => {
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      return data;
+    })
     .then(data => {
-      const tgChatId = data.telegram_chat_id || '';
+      const tgChatId = String(data.telegram_chat_id ?? data.telegramChatId ?? '').trim();
       const spreadId = data.google_spreadsheet_id || '';
       document.getElementById('i_telegram_chat_id').value = tgChatId;
       document.getElementById('i_spreadsheet_id').value   = spreadId;
@@ -868,10 +2420,42 @@ function loadIntegrations() {
       if (data.sheets_service_email) {
         document.getElementById('sheetsServiceEmail').textContent = data.sheets_service_email;
       }
-      if (data.bot_username) {
-        document.getElementById('tgBotLink').textContent = '@' + data.bot_username;
+      const sheetsLink = document.getElementById('sheetsOpenLink');
+      if (sheetsLink) {
+        if (data.google_spreadsheet_url) {
+          sheetsLink.href = data.google_spreadsheet_url;
+          sheetsLink.style.display = 'inline';
+        } else {
+          sheetsLink.style.display = 'none';
+          sheetsLink.removeAttribute('href');
+        }
       }
-    }).catch(()=>{});
+      const tgLink = document.getElementById('tgBotLink');
+      if (tgLink && data.bot_username) {
+        tgLink.textContent = '@' + data.bot_username;
+        tgLink.href = `https://t.me/${data.bot_username}`;
+      }
+    }).catch((err)=>{
+      const tgStatus = document.getElementById('tgStatus');
+      tgStatus.textContent = `❌ Ошибка загрузки интеграций: ${err.message || 'проверьте API ключ и сервер API'}`;
+      tgStatus.style.color = 'var(--bad)';
+      const tgLink = document.getElementById('tgBotLink');
+      if (tgLink) {
+        tgLink.textContent = '@MedsancalcBot';
+        tgLink.href = 'https://t.me/MedsancalcBot';
+      }
+    });
+}
+
+function copySheetsServiceEmail() {
+  const email = (document.getElementById('sheetsServiceEmail')?.textContent || '').trim();
+  if (!email || email === 'загрузка...') {
+    showToast('Email сервисного аккаунта пока не загружен', 'error');
+    return;
+  }
+  navigator.clipboard.writeText(email)
+    .then(() => showToast('Email скопирован ✅', 'success'))
+    .catch(() => showToast('Не удалось скопировать', 'error'));
 }
 
 function saveSheets() {
@@ -879,7 +2463,7 @@ function saveSheets() {
   fetch(`${API}/api/integrations`, {
     method:'PUT', headers:{'x-api-key':apiKey,'Content-Type':'application/json'},
     body: JSON.stringify({ google_spreadsheet_id: spreadsheetId })
-  }).then(()=>{ flashMsg('shsm'); showToast('Google Sheets сохранён','success'); })
+  }).then(()=>{ flashMsg('shsm'); loadIntegrations(); showToast('Google Sheets сохранён','success'); })
     .catch(()=>showToast('Ошибка','error'));
 }
 
