@@ -458,7 +458,7 @@
 <div id="toast"></div>
 
 <script>
-const API = window.API_URL || (window.location.port === '3003' ? '' : 'http://localhost:3003');
+const API = window.API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3003' : 'https://medical-calculator.onrender.com');
 let apiKey = sessionStorage.getItem('adminApiKey') || '', curPage = 1, curFilter = null, curPhoneFilter = null, curArchived = false;
 let loadedCompanyBaseAddress = '';
 let loadedCompanyBaseCoords = '';
