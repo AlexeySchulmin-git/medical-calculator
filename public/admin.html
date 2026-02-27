@@ -458,7 +458,21 @@
 <div id="toast"></div>
 
 <script>
-const API = window.API_URL || (window.location.hostname === 'localhost' ? 'http://localhost:3003' : 'https://medical-calculator.onrender.com');
+const host = window.location.hostname;
+const port = window.location.port;
+const isLocalHost = host === 'localhost' || host === '127.0.0.1';
+const isApiPort = port === '3003';
+const isRenderApp = host.endsWith('.onrender.com');
+const isCloudflarePages = host.endsWith('.pages.dev');
+const CLOUD_API_BASE = 'https://medical-calculator.onrender.com';
+
+const API = (() => {
+  if (window.API_URL) return window.API_URL;
+  if (isApiPort || isRenderApp) return '';
+  if (isLocalHost) return 'http://localhost:3003';
+  if (isCloudflarePages) return CLOUD_API_BASE;
+  return CLOUD_API_BASE;
+})();
 let apiKey = sessionStorage.getItem('adminApiKey') || '', curPage = 1, curFilter = null, curPhoneFilter = null, curArchived = false;
 let loadedCompanyBaseAddress = '';
 let loadedCompanyBaseCoords = '';
