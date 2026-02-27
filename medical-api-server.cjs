@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 const https = require('https');
+const crypto = require('crypto');
 const { Resend } = require('resend');
 const { google } = require('googleapis');
 const fs = require('fs');
@@ -11,11 +12,224 @@ const app = express();
 const PORT = process.env.PORT || 3003;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:3003', 'https://medical-calculator.pages.dev'],
+  credentials: true
+}));
 app.use(express.json());
+
+// Статические файлы
+app.use(express.static('public'));
 
 // PostgreSQL connection
 let pool;
+
+function normalizeAllowedDomains(domains) {
+  if (!Array.isArray(domains)) return [];
+  return [...new Set(
+    domains
+      .map(d => String(d || '').trim().toLowerCase())
+      .filter(Boolean)
+  )];
+}
+
+const ALLOWED_PLAN_CODES = new Set(['trial14', 'monthly', 'quarterly', 'yearly']);
+
+function isValidPlanCode(planCode) {
+  return ALLOWED_PLAN_CODES.has(String(planCode || '').trim().toLowerCase());
+}
+
+function normalizeDomain(domain) {
+  return String(domain || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/\/$/, '');
+}
+
+function isValidDomain(domain) {
+  const value = normalizeDomain(domain);
+  if (!value || value.includes('/')) return false;
+  // example.com, sub.example.com
+  return /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(value);
+}
+
+function buildDefaultClientSettings(overrides = {}) {
+  const pricing = {
+    per_km: pricingCache.per_km ?? 45,
+    base_fixed_add: pricingCache.base_fixed_add ?? 0,
+    base_coeff: pricingCache.base_coeff ?? 0,
+    waiting_30min: pricingCache.waiting_30min ?? 500,
+    oxygen_fee: pricingCache.oxygen_fee ?? 800,
+    no_escort_fee: pricingCache.no_escort_fee ?? 300,
+    round_trip_type: pricingCache.round_trip_type ?? 0,
+    round_trip_value: pricingCache.round_trip_value ?? 80,
+  };
+
+  const company = {
+    base_address: companyCache.base_address ?? '',
+    base_coords: companyCache.base_coords ?? '',
+    policy_url: companyCache.policy_url ?? '',
+    agreement_url: companyCache.agreement_url ?? '',
+  };
+
+  return {
+    pricing,
+    company,
+    widget_display_mode: 'hybrid',
+    calculator_fields: {
+      medical_escort: true,
+      need_oxygen: true,
+      email: true,
+      comment: true,
+      diagnosis: true,
+      escort_count: true,
+      round_trip: true,
+      trip_date: true,
+    },
+    floor_tiers: floorTiersCache,
+    city_rates: cityRatesCache,
+    loyalty: {
+      loyalty_enabled: pricingCache.loyalty_enabled ?? 0,
+      loyalty_percent: pricingCache.loyalty_percent ?? 5,
+      loyalty_max_usage_percent: 100,
+    },
+    integrations: {
+      telegram_chat_id: null,
+      google_spreadsheet_id: null,
+    },
+    ...overrides,
+  };
+}
+
+async function generateUniqueApiKey() {
+  if (!pool) throw new Error('Database not available');
+  for (let i = 0; i < 5; i += 1) {
+    const apiKey = crypto.randomBytes(32).toString('hex');
+    const exists = await pool.query('SELECT 1 FROM clients WHERE api_key = $1 LIMIT 1', [apiKey]);
+    if (exists.rows.length === 0) return apiKey;
+  }
+  throw new Error('Unable to generate unique API key');
+}
+
+async function createClientProvision(payload) {
+  if (!pool) throw new Error('Database not available');
+  const {
+    company_name,
+    contact_email,
+    license_type,
+    allowed_domains,
+    trial_until,
+    paid_until,
+    settings,
+  } = payload;
+
+  const normalizedDomains = normalizeAllowedDomains(allowed_domains);
+  const apiKey = await generateUniqueApiKey();
+  const settingsJson = JSON.stringify(settings || buildDefaultClientSettings());
+
+  const result = await pool.query(`
+    INSERT INTO clients (
+      api_key, license_type, trial_until, paid_until,
+      allowed_domains, company_name, contact_email, settings
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING *
+  `, [
+    apiKey,
+    license_type || 'trial',
+    trial_until || null,
+    paid_until || null,
+    normalizedDomains,
+    company_name || null,
+    contact_email || null,
+    settingsJson,
+  ]);
+
+  return result.rows[0];
+}
+
+async function sendClientOnboardingEmail(client, plainApiKey) {
+  if (!resendManager || !client?.contact_email) return;
+  const adminUrl = process.env.ADMIN_PANEL_URL || 'http://localhost:3000/admin';
+  const supportEmail = process.env.SUPPORT_EMAIL || 'support@example.com';
+  const widgetScriptUrl = process.env.WIDGET_SCRIPT_URL || 'http://localhost:3000/widget-calculator.js';
+  const allowedDomain = Array.isArray(client.allowed_domains) && client.allowed_domains[0] ? client.allowed_domains[0] : 'your-domain.com';
+
+  const html = `
+<h2>Доступ к Medical Calculator активирован</h2>
+<p>Компания: <strong>${client.company_name || 'Новый клиент'}</strong></p>
+<p>Лицензия: <strong>${client.license_type || 'trial'}</strong></p>
+<p><strong>Админ-панель:</strong> <a href="${adminUrl}">${adminUrl}</a></p>
+<p><strong>API key:</strong> <code>${plainApiKey}</code></p>
+<p><strong>Быстрый скрипт подключения:</strong></p>
+<pre style="background:#f8fafc;padding:12px;border-radius:8px;overflow:auto">&lt;script src="${widgetScriptUrl}" data-key="${plainApiKey}" data-domain="${allowedDomain}"&gt;&lt;/script&gt;</pre>
+<p>Важно: ограничьте ключ через allowed domains и не публикуйте его вне рабочего сайта.</p>
+<p>Поддержка: ${supportEmail}</p>
+  `;
+
+  try {
+    const { error } = await resendManager.emails.send({
+      from: 'Medical Calculator <onboarding@resend.dev>',
+      to: [client.contact_email],
+      subject: 'Ваш доступ к Medical Calculator',
+      html,
+    });
+    if (error) console.error('❌ Onboarding email error:', JSON.stringify(error));
+    else console.log(`✅ Onboarding email sent to ${client.contact_email}`);
+  } catch (err) {
+    console.error('❌ Onboarding email exception:', err.message);
+  }
+}
+
+async function upsertOrderInSheet(order, spreadsheetId) {
+  const sheetName = process.env.GOOGLE_SHEET_NAME || 'Заявки';
+  if (!sheetsClient || !spreadsheetId || !order?.orderNumber) return;
+  try {
+    await ensureSheetHeaders(spreadsheetId, sheetName);
+    const existing = await sheetsClient.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${sheetName}!B2:B`,
+    });
+    const rows = existing.data.values || [];
+    const idx = rows.findIndex((r) => String(r?.[0] || '').trim() === String(order.orderNumber).trim());
+    const row = buildSheetOrderRow(order);
+
+    if (idx === -1) {
+      await appendOrderToSheet(order, spreadsheetId);
+      return;
+    }
+
+    const rowNumber = idx + 2;
+    await sheetsClient.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A${rowNumber}:S${rowNumber}`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [row] },
+    });
+    console.log(`✅ Order updated in Google Sheets (${spreadsheetId}), row=${rowNumber}`);
+  } catch (err) {
+    console.error('❌ Google Sheets upsert error:', err.message);
+  }
+}
+
+function resolveLicenseDatesByPlan(planCode) {
+  const now = new Date();
+  const plans = {
+    trial14: { license_type: 'trial', trial_days: 14 },
+    monthly: { license_type: 'paid', paid_days: 30 },
+    quarterly: { license_type: 'paid', paid_days: 90 },
+    yearly: { license_type: 'paid', paid_days: 365 },
+  };
+  const selected = plans[planCode] || plans.monthly;
+  if (selected.license_type === 'trial') {
+    const trialUntil = new Date(now);
+    trialUntil.setDate(trialUntil.getDate() + selected.trial_days);
+    return { license_type: 'trial', trial_until: trialUntil.toISOString(), paid_until: null };
+  }
+  const paidUntil = new Date(now);
+  paidUntil.setDate(paidUntil.getDate() + selected.paid_days);
+  return { license_type: 'paid', trial_until: null, paid_until: paidUntil.toISOString() };
+}
 
 async function initializeDatabase() {
   try {
@@ -39,6 +253,29 @@ async function initializeDatabase() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Таблица заявок на подключение (pre-checkout + post-payment activation)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS signup_requests (
+        id SERIAL PRIMARY KEY,
+        company_name VARCHAR(200),
+        contact_email VARCHAR(200) NOT NULL,
+        domain VARCHAR(255) NOT NULL,
+        plan_code VARCHAR(50) NOT NULL,
+        payment_provider VARCHAR(50),
+        payment_id VARCHAR(200),
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','provisioned','failed')),
+        license_type VARCHAR(20),
+        trial_until TIMESTAMP NULL,
+        paid_until TIMESTAMP NULL,
+        client_id INT NULL REFERENCES clients(id),
+        metadata TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS signup_requests_payment_uniq ON signup_requests(payment_provider, payment_id) WHERE payment_id IS NOT NULL`);
 
     await pool.query(`
       INSERT INTO pricing_settings (key, value, label) VALUES
@@ -168,7 +405,8 @@ async function initializeDatabase() {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS customers (
         id SERIAL PRIMARY KEY,
-        phone VARCHAR(50) NOT NULL UNIQUE,
+        client_id INT REFERENCES clients(id),
+        phone VARCHAR(50) NOT NULL,
         bonus_balance INT NOT NULL DEFAULT 0,
         total_orders INT NOT NULL DEFAULT 0,
         total_spent DECIMAL(12,2) NOT NULL DEFAULT 0,
@@ -189,18 +427,26 @@ async function initializeDatabase() {
     try {
       await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS telegram_chat_id VARCHAR(50) DEFAULT NULL`);
       await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_spreadsheet_id VARCHAR(200) DEFAULT NULL`);
-    } catch (_) { /* игнорируем */ }
+      await pool.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS client_id INT REFERENCES clients(id)`);
+      await pool.query(`DROP INDEX IF EXISTS customers_phone_key`);
+      await pool.query(`ALTER TABLE customers DROP CONSTRAINT IF EXISTS customers_phone_key`);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS customers_client_phone_uniq ON customers (client_id, phone)`);
+    } catch { /* игнорируем */ }
 
     // Миграция orders: добавляем колонки для бонусов
     try {
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_earned INT DEFAULT 0`);
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_used INT DEFAULT 0`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_applied BOOLEAN DEFAULT FALSE`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS bonus_applied_at TIMESTAMP NULL`);
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS escort_count INT DEFAULT 1`);
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS floor_descent INT DEFAULT 0`);
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS floor_ascent INT DEFAULT 0`);
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS need_oxygen BOOLEAN DEFAULT FALSE`);
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS order_number VARCHAR(20)`);
-    } catch (_) { /* игнорируем */ }
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS archived BOOLEAN DEFAULT FALSE`);
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS trip_datetime TIMESTAMP NULL`);
+    } catch { /* игнорируем */ }
 
     // Миграция customers: нормализация телефонов + объединение дубликатов
     try {
@@ -215,17 +461,19 @@ async function initializeDatabase() {
         END
         WHERE phone ~ '[^0-9]' OR (phone ~ '^[0-9]{10}$')
       `);
-      // Шаг 2: объединяем дубликаты — суммируем баллы/заказы/траты, оставляем MIN(id)
+      // Шаг 2: объединяем дубликаты в рамках одного клиента
+      // Важно: нельзя объединять одинаковые телефоны между разными client_id
       await pool.query(`
         WITH dupes AS (
-          SELECT phone,
+          SELECT COALESCE(client_id, -1) AS grp_client_id,
+                 phone,
                  SUM(bonus_balance) AS total_bonus,
                  SUM(total_orders)  AS total_ord,
                  SUM(total_spent)   AS total_sp,
                  MIN(created_at)    AS first_seen,
                  MIN(id)            AS keep_id
           FROM customers
-          GROUP BY phone
+          GROUP BY COALESCE(client_id, -1), phone
           HAVING COUNT(*) > 1
         )
         UPDATE customers c
@@ -239,10 +487,52 @@ async function initializeDatabase() {
       await pool.query(`
         DELETE FROM customers
         WHERE id NOT IN (
-          SELECT MIN(id) FROM customers GROUP BY phone
+          SELECT MIN(id) FROM customers GROUP BY COALESCE(client_id, -1), phone
         )
       `);
+
+      // Шаг 3: backfill client_id для старых строк customers (где он NULL),
+      // если телефон встречается только у одного клиента в orders
+      await pool.query(`
+        UPDATE customers c
+        SET client_id = m.client_id
+        FROM (
+          SELECT phone, MIN(client_id) AS client_id
+          FROM orders
+          WHERE client_id IS NOT NULL
+          GROUP BY phone
+          HAVING COUNT(DISTINCT client_id) = 1
+        ) m
+        WHERE c.client_id IS NULL AND c.phone = m.phone
+      `);
+
+      // Шаг 4: гарантируем наличие customers по каждой паре (client_id, phone),
+      // чтобы исторические данные лояльности не "пропадали" после перехода на tenant-изоляцию
+      await pool.query(`
+        INSERT INTO customers (client_id, phone, bonus_balance, total_orders, total_spent, created_at, updated_at)
+        SELECT
+          o.client_id,
+          o.phone,
+          0,
+          COUNT(*)::INT,
+          COALESCE(SUM(o.price), 0)::DECIMAL(12,2),
+          MIN(o.created_at),
+          CURRENT_TIMESTAMP
+        FROM orders o
+        WHERE o.client_id IS NOT NULL AND o.phone IS NOT NULL AND o.phone <> ''
+        GROUP BY o.client_id, o.phone
+        ON CONFLICT (client_id, phone) DO UPDATE
+          SET total_orders = GREATEST(customers.total_orders, EXCLUDED.total_orders),
+              total_spent  = GREATEST(customers.total_spent, EXCLUDED.total_spent),
+              updated_at   = CURRENT_TIMESTAMP
+      `);
+
+      const unresolvedRes = await pool.query(`SELECT COUNT(*)::INT AS cnt FROM customers WHERE client_id IS NULL`);
+      const unresolved = unresolvedRes.rows[0]?.cnt || 0;
       console.log('✅ Миграция customers: телефоны нормализованы, дубликаты объединены');
+      if (unresolved > 0) {
+        console.warn(`⚠️  customers без client_id после backfill: ${unresolved} (требуется ручная проверка)`);
+      }
     } catch (migErr) { console.warn('⚠️  Миграция customers:', migErr.message); }
 
     // Загружаем настройки в кэш
@@ -257,7 +547,12 @@ async function initializeDatabase() {
 }
 
 // Initialize database on startup
-initializeDatabase().catch(console.error);
+initializeDatabase()
+  .then(() => {
+    console.log('✅ Database initialized, setting up superadmin tables...');
+    return ensureSuperAdminTables();
+  })
+  .catch(console.error);
 
 // Кэш настроек ценообразования
 let pricingCache = {
@@ -302,8 +597,8 @@ async function loadPricingSettings() {
 
 // Найти тариф этажа по весу и направлению
 // round_trip_type: 0 = коэфф%, 1 = фикс. сумма (может быть отрицательной)
-function getFloorPrice(direction, weight) {
-  const tiers = floorTiersCache[direction] || [];
+function getFloorPrice(direction, weight, floorTiers = floorTiersCache) {
+  const tiers = floorTiers[direction] || [];
   for (const t of tiers) {
     const from = t.weight_from;
     const to   = t.weight_to === null || t.weight_to === undefined ? Infinity : t.weight_to;
@@ -322,10 +617,59 @@ function normalizePhone(raw) {
 }
 
 // Найти городскую ставку по названию города (частичное совпадение)
-function findCityRate(cityName) {
+function findCityRate(cityName, rates = cityRatesCache) {
   if (!cityName) return null;
   const name = cityName.toLowerCase();
-  return cityRatesCache.find(c => name.includes(c.city_name.toLowerCase())) || null;
+  return rates.find(c => name.includes(c.city_name.toLowerCase())) || null;
+}
+
+function parseClientSettings(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function buildClientScopedConfig(client) {
+  const settings = parseClientSettings(client?.settings);
+  return {
+    pricing: {
+      per_km: settings.pricing?.per_km ?? pricingCache.per_km ?? 45,
+      base_fixed_add: settings.pricing?.base_fixed_add ?? pricingCache.base_fixed_add ?? 0,
+      base_coeff: settings.pricing?.base_coeff ?? pricingCache.base_coeff ?? 0,
+      waiting_30min: settings.pricing?.waiting_30min ?? pricingCache.waiting_30min ?? 500,
+      oxygen_fee: settings.pricing?.oxygen_fee ?? pricingCache.oxygen_fee ?? 800,
+      no_escort_fee: settings.pricing?.no_escort_fee ?? pricingCache.no_escort_fee ?? 300,
+      round_trip_type: settings.pricing?.round_trip_type ?? pricingCache.round_trip_type ?? 0,
+      round_trip_value: settings.pricing?.round_trip_value ?? pricingCache.round_trip_value ?? 80,
+    },
+    company: {
+      base_address: settings.company?.base_address ?? companyCache.base_address ?? '',
+      base_coords: settings.company?.base_coords ?? companyCache.base_coords ?? '',
+      policy_url: settings.company?.policy_url ?? companyCache.policy_url ?? '',
+      agreement_url: settings.company?.agreement_url ?? companyCache.agreement_url ?? '',
+    },
+    floor_tiers: settings.floor_tiers || floorTiersCache,
+    city_rates: settings.city_rates || cityRatesCache,
+    loyalty: {
+      loyalty_enabled: settings.loyalty?.loyalty_enabled ?? pricingCache.loyalty_enabled ?? 0,
+      loyalty_percent: settings.loyalty?.loyalty_percent ?? pricingCache.loyalty_percent ?? 5,
+      loyalty_max_usage_percent: settings.loyalty?.loyalty_max_usage_percent ?? 100,
+    },
+    raw: settings,
+  };
+}
+
+async function saveClientScopedSettings(clientId, updater) {
+  const currentRes = await pool.query('SELECT settings FROM clients WHERE id = $1 LIMIT 1', [clientId]);
+  if (currentRes.rows.length === 0) return null;
+  const current = parseClientSettings(currentRes.rows[0].settings);
+  const next = updater(current) || current;
+  await pool.query('UPDATE clients SET settings = $1 WHERE id = $2', [JSON.stringify(next), clientId]);
+  return next;
 }
 
 // ── TELEGRAM ─────────────────────────────────────────
@@ -372,11 +716,12 @@ async function sendTelegramNotification(order, chatId) {
     ``,
     `📍 *Откуда:* ${order.from_address}`,
     `📍 *Куда:* ${order.to_address}`,
-    order.distance ? `🛣 Расстояние: ${order.distance} км` : null,
+    order.trip_datetime ? `🗓 *Дата поездки*: ${new Date(order.trip_datetime).toLocaleString('ru-RU')}` : null,
+    order.distance ? `🛣 *Расстояние*: ${order.distance} км` : null,
     ``,
     `💰 *Стоимость: ${Number(order.price).toLocaleString('ru-RU')} ₽*${order.bonus_used > 0 ? ` _(списано ${order.bonus_used} бонусов)_` : ''}`,
-    order.weight ? `⚖️ Вес: ${order.weight} кг` : null,
-    order.diagnosis ? `🏥 Диагноз: ${order.diagnosis}` : null,
+    order.weight ? `⚖️ *Вес*: ${order.weight} кг` : null,
+    order.diagnosis ? `🏥 *Диагноз*: ${order.diagnosis}` : null,
     options ? `\n${options}` : null,
     order.comment ? `\n💬 ${order.comment}` : null,
   ].filter(v => v !== null).join('\n');
@@ -442,6 +787,114 @@ app.post('/api/telegram/webhook', async (req, res) => {
 // ── GOOGLE SHEETS ─────────────────────────────────────
 let sheetsClient = null;
 
+function statusToRuLabel(status) {
+  return {
+    new: 'Новая',
+    in_progress: 'В работе',
+    completed: 'Завершена',
+    cancelled: 'Отменена',
+  }[String(status || 'new')] || 'Новая';
+}
+
+function formatTripDateTime(value) {
+  if (!value) return '';
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
+}
+
+function formatPriceRub(value) {
+  return Number(value || 0).toLocaleString('ru-RU');
+}
+
+function toSheetSafeText(value) {
+  const str = String(value ?? '');
+  if (!str) return '';
+  // Avoid spreadsheet formula parsing for values like +7...
+  if (str.startsWith('+')) return `'${str}`;
+  return str;
+}
+
+async function ensureSheetHeaders(spreadsheetId, sheetName) {
+  const headers = [
+    'Дата', 'Номер заявки', 'Телефон', 'Email', 'Имя клиента', 'Откуда', 'Куда',
+    'Расстояние (км)', 'Стоимость', 'Вес', 'Диагноз', 'Спуск (этажей)',
+    'Подъем (этажей)', 'Мед. сопровождение', 'Кислород', 'Туда-обратно',
+    'Комментарий', 'Статус', 'Дата/время поездки'
+  ];
+
+  const headerRes = await sheetsClient.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${sheetName}!A1:S1`,
+  });
+  const firstRow = headerRes.data.values && headerRes.data.values[0] ? headerRes.data.values[0] : [];
+  const hasExpectedHeader = firstRow[0] === headers[0] && firstRow[1] === headers[1];
+
+  if (!firstRow.length) {
+    await sheetsClient.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A1:S1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [headers] },
+    });
+    return;
+  }
+
+  if (!hasExpectedHeader) {
+    const meta = await sheetsClient.spreadsheets.get({ spreadsheetId });
+    const targetSheet = (meta.data.sheets || []).find((s) => s.properties && s.properties.title === sheetName);
+    const sheetId = targetSheet?.properties?.sheetId;
+    if (sheetId !== undefined && sheetId !== null) {
+      await sheetsClient.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            insertDimension: {
+              range: {
+                sheetId,
+                dimension: 'ROWS',
+                startIndex: 0,
+                endIndex: 1,
+              },
+              inheritFromBefore: false,
+            },
+          }],
+        },
+      });
+    }
+    await sheetsClient.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A1:S1`,
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values: [headers] },
+    });
+  }
+}
+
+function buildSheetOrderRow(order) {
+  return [
+    new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' }),
+    order.orderNumber || '',
+    toSheetSafeText(order.phone || ''),
+    order.email || '',
+    order.customer_name || '',
+    order.from_address || '',
+    order.to_address || '',
+    order.distance || 0,
+    order.price || 0,
+    order.weight || '',
+    order.diagnosis || '',
+    order.floor_descent || 0,
+    order.floor_ascent || 0,
+    order.medical_escort ? 'Да' : 'Нет',
+    order.need_oxygen ? 'Да' : 'Нет',
+    order.round_trip ? 'Да' : 'Нет',
+    order.comment || '',
+    statusToRuLabel(order.status),
+    formatTripDateTime(order.trip_datetime),
+  ];
+}
+
 async function initGoogleSheets() {
   const jsonEnv = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
@@ -469,27 +922,9 @@ async function appendOrderToSheet(order, spreadsheetId) {
   const sheetName = process.env.GOOGLE_SHEET_NAME || 'Заявки';
   if (!sheetsClient || !spreadsheetId) return;
   try {
-    const now = new Date().toLocaleString('ru-RU', { timeZone: 'Europe/Moscow' });
-    const row = [
-      now,
-      order.orderNumber,
-      order.phone,
-      order.email || '',
-      order.customer_name || '',
-      order.from_address,
-      order.to_address,
-      order.distance || 0,
-      order.price,
-      order.weight || '',
-      order.diagnosis || '',
-      order.floor_descent || 0,
-      order.floor_ascent  || 0,
-      order.medical_escort ? 'Да' : 'Нет',
-      order.need_oxygen    ? 'Да' : 'Нет',
-      order.round_trip     ? 'Да' : 'Нет',
-      order.comment || '',
-      'Новая',
-    ];
+    await ensureSheetHeaders(spreadsheetId, sheetName);
+
+    const row = buildSheetOrderRow(order);
     await sheetsClient.spreadsheets.values.append({
       spreadsheetId,
       range: `${sheetName}!A1`,
@@ -543,7 +978,7 @@ async function sendOrderEmails(order) {
   ].filter(Boolean);
 
   const bonusRow = order.bonus_used > 0
-    ? `<tr><td style="padding:6px 12px;background:#fef9c3;font-weight:600">⭐ Оплачено бонусами</td><td style="padding:6px 12px;color:#854d0e"><strong>${order.bonus_used} ₽</strong> (из ${order.original_price} ₽)</td></tr>`
+    ? `<tr><td style="padding:6px 12px;background:#fef9c3;font-weight:600">⭐ Оплачено бонусами</td><td style="padding:6px 12px;color:#854d0e"><strong>${formatPriceRub(order.bonus_used)} ₽</strong> (из ${formatPriceRub(order.original_price)} ₽)</td></tr>`
     : '';
 
   // Письмо менеджеру
@@ -553,7 +988,8 @@ async function sendOrderEmails(order) {
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Откуда</td><td style="padding:6px 12px">${order.from_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Куда</td><td style="padding:6px 12px">${order.to_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Расстояние</td><td style="padding:6px 12px">${order.distance} км</td></tr>
-  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Стоимость к оплате</td><td style="padding:6px 12px"><strong>${order.price} ₽</strong></td></tr>
+  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Стоимость к оплате</td><td style="padding:6px 12px"><strong>${formatPriceRub(order.price)} ₽</strong></td></tr>
+  ${order.trip_datetime ? `<tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Дата/время поездки</td><td style="padding:6px 12px">${formatTripDateTime(order.trip_datetime)}</td></tr>` : ''}
   ${bonusRow}
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Телефон</td><td style="padding:6px 12px">${order.phone}</td></tr>
   ${order.email ? `<tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Email</td><td style="padding:6px 12px">${order.email}</td></tr>` : ''}
@@ -590,7 +1026,7 @@ async function sendOrderEmails(order) {
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Откуда</td><td style="padding:6px 12px">${order.from_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Куда</td><td style="padding:6px 12px">${order.to_address}</td></tr>
   <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Расстояние</td><td style="padding:6px 12px">${order.distance} км</td></tr>
-  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Стоимость к оплате</td><td style="padding:6px 12px"><strong>${order.price} ₽</strong></td></tr>
+  <tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Стоимость к оплате</td><td style="padding:6px 12px"><strong>${formatPriceRub(order.price)} ₽</strong></td></tr>
   ${bonusRow}
   ${optionsList.length > 0 ? `<tr><td style="padding:6px 12px;background:#f1f5f9;font-weight:600">Опции</td><td style="padding:6px 12px">${optionsList.join(', ')}</td></tr>` : ''}
 </table>
@@ -645,7 +1081,8 @@ app.get('/api/widget/config', async (req, res) => {
           pricing: { ...pricingCache },
           bonus: {
             enabled: pricingCache.loyalty_enabled,
-            percent: pricingCache.loyalty_percent
+            percent: pricingCache.loyalty_percent,
+            max_usage_percent: 100,
           },
           personal_data_url: '/privacy',
           ui: {
@@ -691,7 +1128,8 @@ app.get('/api/widget/config', async (req, res) => {
       pricing: { ...pricingCache },
       bonus: {
         enabled: !!pricingCache.loyalty_enabled,
-        percent: pricingCache.loyalty_percent || 5
+        percent: pricingCache.loyalty_percent || 5,
+        max_usage_percent: 100,
       },
       personal_data_url: '/privacy',
       ui: {
@@ -708,6 +1146,14 @@ app.get('/api/widget/config', async (req, res) => {
       ...(client.settings && JSON.parse(client.settings))
     };
 
+    const loyaltySettings = settings.loyalty || {};
+    settings.bonus = {
+      ...(settings.bonus || {}),
+      enabled: !!loyaltySettings.loyalty_enabled,
+      percent: parseFloat(loyaltySettings.loyalty_percent ?? settings.bonus?.percent ?? 5) || 5,
+      max_usage_percent: Math.max(0, Math.min(100, parseFloat(loyaltySettings.loyalty_max_usage_percent ?? settings.bonus?.max_usage_percent ?? 100) || 100)),
+    };
+
     res.json({
       client_id: client.id,
       company_name: client.company_name,
@@ -720,11 +1166,139 @@ app.get('/api/widget/config', async (req, res) => {
   }
 });
 
+// Публичный pre-checkout endpoint: сохраняем заявку до оплаты
+app.post('/api/public/signup-intent', async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+
+    const { company_name, email, domain, plan_code, metadata } = req.body || {};
+    if (!email || !domain || !plan_code) {
+      return res.status(400).json({ error: 'email, domain, plan_code are required' });
+    }
+
+    const normalizedDomain = normalizeDomain(domain);
+    const normalizedPlan = String(plan_code).trim().toLowerCase();
+    if (!isValidDomain(normalizedDomain)) {
+      return res.status(400).json({ error: 'Invalid domain format' });
+    }
+    if (!isValidPlanCode(normalizedPlan)) {
+      return res.status(400).json({ error: 'Invalid plan_code' });
+    }
+
+    const result = await pool.query(`
+      INSERT INTO signup_requests (company_name, contact_email, domain, plan_code, metadata, status)
+      VALUES ($1, $2, $3, $4, $5, 'pending')
+      RETURNING id, status, created_at
+    `, [
+      company_name || null,
+      String(email).trim().toLowerCase(),
+      normalizedDomain,
+      normalizedPlan,
+      metadata ? JSON.stringify(metadata) : null,
+    ]);
+
+    res.json({
+      signup_request_id: result.rows[0].id,
+      status: result.rows[0].status,
+      created_at: result.rows[0].created_at,
+    });
+  } catch (error) {
+    console.error('Error creating signup intent:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Публичный webhook от платежки: после успешной оплаты создаем клиента и отправляем доступ
+app.post('/api/public/payment-webhook', async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+
+    const expectedSecret = process.env.PAYMENT_WEBHOOK_SECRET;
+    const providedSecret = req.headers['x-payment-secret'];
+    if (!expectedSecret || providedSecret !== expectedSecret) {
+      return res.status(401).json({ error: 'Unauthorized webhook' });
+    }
+
+    const {
+      signup_request_id,
+      payment_provider,
+      payment_id,
+      payment_status,
+    } = req.body || {};
+
+    if (!signup_request_id || !payment_id) {
+      return res.status(400).json({ error: 'signup_request_id and payment_id are required' });
+    }
+    if (String(payment_status).toLowerCase() !== 'succeeded') {
+      return res.status(202).json({ status: 'ignored', reason: 'payment not succeeded' });
+    }
+
+    const signupRes = await pool.query(
+      'SELECT * FROM signup_requests WHERE id = $1 LIMIT 1',
+      [signup_request_id]
+    );
+    if (signupRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Signup request not found' });
+    }
+
+    const signup = signupRes.rows[0];
+    if (signup.client_id) {
+      return res.json({ status: 'already_provisioned', client_id: signup.client_id });
+    }
+
+    const normalizedPlan = String(signup.plan_code || '').toLowerCase();
+    if (!isValidPlanCode(normalizedPlan)) {
+      return res.status(400).json({ error: 'Invalid plan_code in signup request' });
+    }
+
+    const licenseDates = resolveLicenseDatesByPlan(normalizedPlan);
+    const createdClient = await createClientProvision({
+      company_name: signup.company_name,
+      contact_email: signup.contact_email,
+      license_type: licenseDates.license_type,
+      trial_until: licenseDates.trial_until,
+      paid_until: licenseDates.paid_until,
+      allowed_domains: [signup.domain],
+      settings: buildDefaultClientSettings(),
+    });
+
+    await pool.query(`
+      UPDATE signup_requests
+      SET status = 'provisioned',
+          payment_provider = $1,
+          payment_id = $2,
+          license_type = $3,
+          trial_until = $4,
+          paid_until = $5,
+          client_id = $6,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $7
+    `, [
+      payment_provider || 'unknown',
+      payment_id,
+      licenseDates.license_type,
+      licenseDates.trial_until,
+      licenseDates.paid_until,
+      createdClient.id,
+      signup_request_id,
+    ]);
+
+    await sendClientOnboardingEmail(createdClient, createdClient.api_key);
+    res.json({ status: 'provisioned', client_id: createdClient.id });
+  } catch (error) {
+    console.error('Payment webhook provisioning error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Calculate price endpoint (для предварительного расчёта в виджете)
 app.post('/api/calculate-price', async (req, res) => {
   try {
     const apiKey = req.headers['x-api-key'];
     if (!apiKey) return res.status(401).json({ error: 'API key required' });
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+    const scopedConfig = buildClientScopedConfig(client);
 
     const body = req.body;
     const priceData = {
@@ -740,7 +1314,7 @@ app.post('/api/calculate-price', async (req, res) => {
       roundTrip:  !!body.round_trip,
     };
 
-    const price = calculatePrice(priceData);
+    const price = calculatePrice(priceData, scopedConfig);
     console.log(`💰 /api/calculate-price: dist=${priceData.totalDistance} from="${priceData.fromCity.slice(0,30)}" to="${priceData.toCity.slice(0,30)}" → ${price}₽`);
 
     return res.json({ success: true, price });
@@ -774,7 +1348,7 @@ app.post('/api/orders', async (req, res) => {
 
     // Проверка API ключа
     const clientsRes = await pool.query(
-      'SELECT id, telegram_chat_id, google_spreadsheet_id FROM clients WHERE api_key = $1',
+      'SELECT id, settings, telegram_chat_id, google_spreadsheet_id FROM clients WHERE api_key = $1',
       [apiKey]
     );
 
@@ -783,7 +1357,8 @@ app.post('/api/orders', async (req, res) => {
     }
 
     const clientId            = clientsRes.rows[0].id;
-    const clientTgChatId      = clientsRes.rows[0].telegram_chat_id      || null;
+    const scopedConfig        = buildClientScopedConfig(clientsRes.rows[0]);
+    const clientTgChatId      = clientsRes.rows[0].telegram_chat_id;
     const clientSpreadsheetId = clientsRes.rows[0].google_spreadsheet_id || null;
 
     // Генерируем уникальный номер заявки
@@ -803,7 +1378,38 @@ app.post('/api/orders', async (req, res) => {
       roundTrip:  !!body.round_trip,
     };
 
-    const calculatedPrice = calculatePrice(priceData);
+    const calculatedPrice = calculatePrice(priceData, scopedConfig);
+
+    // Система лояльности: списание при создании, начисление — только после статуса completed
+    const requestedBonusUsed = Math.max(0, parseInt(body.bonus_used) || 0);
+    let bonusUsed = 0;
+    let bonusEarned = 0;
+    const loyaltyPercent = scopedConfig.loyalty.loyalty_percent || 5;
+    const loyaltyMaxUsagePercent = Math.max(0, Math.min(100, parseFloat(scopedConfig.loyalty.loyalty_max_usage_percent ?? 100) || 100));
+    let maxBonusByBalancePercent = 0;
+    const phone = normalizePhone(body.phone);
+
+    if (scopedConfig.loyalty.loyalty_enabled && phone) {
+      const balRes = await pool.query(
+        'SELECT bonus_balance FROM customers WHERE client_id = $1 AND phone = $2 LIMIT 1',
+        [clientId, phone]
+      );
+      const availableBalance = parseInt(balRes.rows[0]?.bonus_balance) || 0;
+      maxBonusByBalancePercent = Math.floor(Math.max(0, availableBalance) * loyaltyMaxUsagePercent / 100);
+      bonusUsed = Math.min(requestedBonusUsed, availableBalance, maxBonusByBalancePercent, Math.max(0, calculatedPrice));
+      const accrualBasePrice = Math.max(0, calculatedPrice - bonusUsed);
+      bonusEarned = Math.round(accrualBasePrice * loyaltyPercent / 100);
+
+      console.log('[LOYALTY][ORDER] balance clamp', {
+        orderNumber,
+        clientId,
+        availableBalance,
+        loyaltyMaxUsagePercent,
+        maxBonusByBalancePercent,
+      });
+    }
+
+    const finalPrice = Math.max(0, calculatedPrice - bonusUsed);
 
     // Сохраняем заявку в базу данных
     await pool.query(`
@@ -812,8 +1418,9 @@ app.post('/api/orders', async (req, res) => {
         from_address, to_address, floor_num, no_elevator,
         diagnosis, weight, round_trip, payment_method,
         medical_escort, comment, distance, price, status,
-        floor_descent, floor_ascent, need_oxygen, escort_count
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+        floor_descent, floor_ascent, need_oxygen, escort_count,
+        bonus_used, bonus_earned, bonus_applied, trip_datetime
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)
     `, [
       clientId,
       orderNumber,
@@ -831,55 +1438,76 @@ app.post('/api/orders', async (req, res) => {
       body.medical_escort ? true : false,
       body.comment || '',
       parseFloat(body.distance) || 0,
-      calculatedPrice,
+      finalPrice,
       'new',
       parseInt(body.floor_descent) || 0,
       parseInt(body.floor_ascent) || 0,
       body.need_oxygen ? true : false,
-      parseInt(body.escort_count) || 0
+      parseInt(body.escort_count) || 0,
+      bonusUsed,
+      bonusEarned,
+      false,
+      body.trip_datetime || null,
     ]);
 
-    // Система лояльности: списание и начисление бонусов
-    const bonusUsed   = parseInt(body.bonus_used) || 0;
-    let   bonusEarned = 0;
-    const finalPrice  = Math.max(0, calculatedPrice - bonusUsed);
+    console.log('[LOYALTY][ORDER] start', {
+      orderNumber,
+      clientId,
+      loyaltyEnabled: !!scopedConfig.loyalty.loyalty_enabled,
+      loyaltyPercent: scopedConfig.loyalty.loyalty_percent || 5,
+      rawPhone: body.phone || null,
+      bonusUsed,
+      calculatedPrice,
+      finalPrice,
+    });
 
-    if (pricingCache.loyalty_enabled && body.phone) {
-      const phone = normalizePhone(body.phone);
-      bonusEarned = Math.round(finalPrice * (pricingCache.loyalty_percent || 5) / 100);
+    if (scopedConfig.loyalty.loyalty_enabled && body.phone) {
+      if (!phone) {
+        console.warn('[LOYALTY][ORDER] phone normalization failed', { orderNumber, clientId, rawPhone: body.phone });
+      }
+      bonusEarned = Math.round(finalPrice * loyaltyPercent / 100);
+
+      console.log('[LOYALTY][ORDER] computed', {
+        orderNumber,
+        clientId,
+        phone,
+        bonusEarned,
+        bonusUsed,
+        requestedBonusUsed,
+        loyaltyMaxUsagePercent,
+        maxBonusByBalancePercent,
+      });
 
       // Списание: уменьшаем баланс (не уходим в минус)
-      if (bonusUsed > 0) {
-        pool.query(`
+      if (phone && bonusUsed > 0) {
+        const deductRes = await pool.query(`
           UPDATE customers SET
             bonus_balance = GREATEST(0, bonus_balance - $1),
             updated_at    = CURRENT_TIMESTAMP
-          WHERE phone = $2
-        `, [bonusUsed, phone]).catch(err => console.error('Loyalty deduct error:', err.message));
+          WHERE client_id = $2 AND phone = $3
+        `, [bonusUsed, clientId, phone]);
+        console.log('[LOYALTY][ORDER] deduct complete', {
+          orderNumber,
+          clientId,
+          phone,
+          bonusUsed,
+          affectedRows: deductRes.rowCount || 0,
+        });
       }
 
-      // Начисление: upsert клиента
-      if (bonusEarned > 0) {
-        pool.query(`
-          INSERT INTO customers (phone, bonus_balance, total_orders, total_spent)
-          VALUES ($1, $2, 1, $3)
-          ON CONFLICT (phone) DO UPDATE
-            SET bonus_balance = customers.bonus_balance + $2,
-                total_orders  = customers.total_orders + 1,
-                total_spent   = customers.total_spent + $3,
-                updated_at    = CURRENT_TIMESTAMP
-        `, [phone, bonusEarned, finalPrice]).catch(err => console.error('Loyalty earn error:', err.message));
-      } else if (bonusUsed === 0) {
-        // Первый заказ — просто создаём запись клиента без баллов
-        pool.query(`
-          INSERT INTO customers (phone, total_orders, total_spent)
-          VALUES ($1, 1, $2)
-          ON CONFLICT (phone) DO UPDATE
-            SET total_orders = customers.total_orders + 1,
-                total_spent  = customers.total_spent + $2,
-                updated_at   = CURRENT_TIMESTAMP
-        `, [phone, finalPrice]).catch(err => console.error('Loyalty upsert error:', err.message));
-      }
+      console.log('[LOYALTY][ORDER] accrual deferred until status=completed', {
+        orderNumber,
+        clientId,
+        phone,
+        bonusEarned,
+      });
+    } else {
+      console.log('[LOYALTY][ORDER] skipped', {
+        orderNumber,
+        clientId,
+        loyaltyEnabled: !!scopedConfig.loyalty.loyalty_enabled,
+        hasPhone: !!body.phone,
+      });
     }
 
     // Отправляем уведомления (не блокируем ответ)
@@ -904,7 +1532,9 @@ app.post('/api/orders', async (req, res) => {
       med_escort_count: body.med_escort_count || 1,
       escort_count: body.escort_count || 0,
       need_oxygen: body.need_oxygen,
-      round_trip: body.round_trip
+      round_trip: body.round_trip,
+      trip_datetime: body.trip_datetime || null,
+      status: 'new',
     };
     sendTelegramNotification(notifyData, clientTgChatId).catch(err => console.error('Telegram error:', err.message));
     appendOrderToSheet(notifyData, clientSpreadsheetId).catch(err => console.error('Sheets error:', err.message));
@@ -942,8 +1572,15 @@ app.post('/api/dadata/suggest', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter is required' });
     }
 
-    // Проверяем кэш
-    const cacheKey = `suggest_${query.toLowerCase()}`;
+    // Проверяем кэш (учитываем форму запроса, чтобы count=1 confirm не конфликтовал с обычными подсказками)
+    const cacheKey = `suggest_${JSON.stringify({
+      q: String(query || '').trim().toLowerCase(),
+      count: Number(req.body.count || count || 5),
+      from: req.body.from_bound?.value || '',
+      to: req.body.to_bound?.value || '',
+      restrict: req.body.restrict_value !== false,
+      locations: Array.isArray(req.body.locations) ? req.body.locations : []
+    })}`;
     const cached = await getCachedSuggestion(cacheKey);
     if (cached) {
       console.log('📋 Using cached suggestion for:', query);
@@ -1412,7 +2049,7 @@ app.post('/api/dadata/distance', async (req, res) => {
           if (ghRespAB.status === 200 && ghRespAB.data.paths && ghRespAB.data.paths.length > 0) {
             displayKm = ghRespAB.data.paths[0].distance / 1000;
           }
-        } catch (_) { /* fallback to total */ }
+        } catch { /* fallback to total */ }
         console.log(`✅ GraphHopper total: ${totalDistanceKm.toFixed(2)} km (А→Б: ${displayKm.toFixed(2)} km), ${durationMinutes} min`);
         return res.json({
           success: true,
@@ -1501,22 +2138,26 @@ app.get('/api/test', (req, res) => {
 // Расчёт стоимости поездки
 // data: { totalDistance, fromCity, toCity, weight, descentFloors, ascentFloors,
 //         needOxygen, noEscort, waitingSlots, roundTrip }
-function calculatePrice(data) {
-  const perKm        = pricingCache.per_km        || 45;
-  const baseFixedAdd = pricingCache.base_fixed_add || 0;   // ± фикс. надбавка
-  const baseCoeff    = pricingCache.base_coeff     || 0;   // % к итогу (0 = выкл)
-  const waitingFee   = pricingCache.waiting_30min  || 500;
-  const oxygenFee    = pricingCache.oxygen_fee     || 800;
-  const noEscortFee  = pricingCache.no_escort_fee  || 300;
-  const rtType       = parseInt(pricingCache.round_trip_type)  || 0; // 0=%, 1=фикс
-  const rtValue      = parseFloat(pricingCache.round_trip_value) || 80;
+function calculatePrice(data, scopedConfig = null) {
+  const pricing = scopedConfig?.pricing || pricingCache;
+  const floorTiers = scopedConfig?.floor_tiers || floorTiersCache;
+  const cityRates = scopedConfig?.city_rates || cityRatesCache;
+
+  const perKm        = pricing.per_km ?? 45;
+  const baseFixedAdd = pricing.base_fixed_add ?? 0;   // ± фикс. надбавка
+  const baseCoeff    = pricing.base_coeff ?? 0;       // % к итогу (0 = выкл)
+  const waitingFee   = pricing.waiting_30min ?? 500;
+  const oxygenFee    = pricing.oxygen_fee ?? 800;
+  const noEscortFee  = pricing.no_escort_fee ?? 300;
+  const rtType       = parseInt(pricing.round_trip_type) || 0; // 0=%, 1=фикс
+  const rtValue      = parseFloat(pricing.round_trip_value) || 80;
 
   const dist   = data.totalDistance || 0;
   const weight = parseFloat(data.weight) || 0;
 
   // --- Стоимость по км с городскими коэффициентами ---
-  const toRate   = findCityRate(data.toCity);
-  const fromRate = findCityRate(data.fromCity);
+  const toRate   = findCityRate(data.toCity, cityRates);
+  const fromRate = findCityRate(data.fromCity, cityRates);
   let kmPrice = 0;
 
   // Фикс применяется только если оба адреса в одном фиксированном городе
@@ -1545,12 +2186,12 @@ function calculatePrice(data) {
 
   // --- Спуск без лифта ---
   if (data.descentFloors > 0) {
-    price += data.descentFloors * getFloorPrice('descent', weight);
+    price += data.descentFloors * getFloorPrice('descent', weight, floorTiers);
   }
 
   // --- Подъём без лифта ---
   if (data.ascentFloors > 0) {
-    price += data.ascentFloors * getFloorPrice('ascent', weight);
+    price += data.ascentFloors * getFloorPrice('ascent', weight, floorTiers);
   }
 
   // --- Ожидание ---
@@ -1607,39 +2248,90 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+async function resolveClientByApiKey(apiKey) {
+  if (!apiKey) return null;
+  const result = await pool.query(
+    'SELECT id, company_name, settings FROM clients WHERE api_key = $1 LIMIT 1',
+    [apiKey]
+  );
+  return result.rows[0] || null;
+}
+
 // Orders list endpoint (для Admin Dashboard)
 app.get('/api/orders', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
 
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
     const status = req.query.status || null;
-    const phone  = req.query.phone  || null;
+    const phoneRaw = req.query.phone || null;
+    const phone = normalizePhone(phoneRaw);
+    const archivedParam = String(req.query.archived || '0').toLowerCase();
+    const archivedOnly = archivedParam === '1' || archivedParam === 'true';
 
-    const conditions = [];
-    const params = [];
+    const conditions = ['o.client_id = $1'];
+    const params = [client.id];
+    conditions.push(archivedOnly ? 'COALESCE(o.archived, FALSE) = TRUE' : 'COALESCE(o.archived, FALSE) = FALSE');
     if (status) { params.push(status); conditions.push(`o.status = $${params.length}`); }
-    if (phone)  { params.push(phone);  conditions.push(`o.phone = $${params.length}`); }
+    if (phone)  {
+      params.push(phone);
+      conditions.push(`regexp_replace(COALESCE(o.phone, ''), '\\D', '', 'g') = $${params.length}`);
+    }
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
 
-    const ordersRes = await pool.query(`
-      SELECT o.*, c.company_name
-      FROM orders o
-      LEFT JOIN clients c ON o.client_id = c.id
-      ${where}
-      ORDER BY o.created_at DESC
-      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
-    `, [...params, limit, offset]);
+    let rows = [];
+    let total = 0;
+    try {
+      const ordersRes = await pool.query(`
+        SELECT o.*, c.company_name
+        FROM orders o
+        LEFT JOIN clients c ON o.client_id = c.id
+        ${where}
+        ORDER BY o.created_at DESC
+        LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `, [...params, limit, offset]);
 
-    const countRes = await pool.query(
-      `SELECT COUNT(*) as total FROM orders o ${where}`,
-      params
-    );
-    const rows = ordersRes.rows;
-    const total = parseInt(countRes.rows[0].total);
+      const countRes = await pool.query(
+        `SELECT COUNT(*) as total FROM orders o ${where}`,
+        params
+      );
+      rows = ordersRes.rows;
+      total = parseInt(countRes.rows[0].total);
+    } catch (queryErr) {
+      // Совместимость со старыми БД, где ещё нет колонки orders.archived.
+      if (queryErr?.code !== '42703') throw queryErr;
+
+      const legacyConditions = ['o.client_id = $1'];
+      const legacyParams = [client.id];
+      if (status) { legacyParams.push(status); legacyConditions.push(`o.status = $${legacyParams.length}`); }
+      if (phone) {
+        legacyParams.push(phone);
+        legacyConditions.push(`regexp_replace(COALESCE(o.phone, ''), '\\D', '', 'g') = $${legacyParams.length}`);
+      }
+      const legacyWhere = 'WHERE ' + legacyConditions.join(' AND ');
+
+      const ordersRes = await pool.query(`
+        SELECT o.*, c.company_name
+        FROM orders o
+        LEFT JOIN clients c ON o.client_id = c.id
+        ${legacyWhere}
+        ORDER BY o.created_at DESC
+        LIMIT $${legacyParams.length + 1} OFFSET $${legacyParams.length + 2}
+      `, [...legacyParams, limit, offset]);
+
+      const countRes = await pool.query(
+        `SELECT COUNT(*) as total FROM orders o ${legacyWhere}`,
+        legacyParams
+      );
+      rows = ordersRes.rows;
+      total = parseInt(countRes.rows[0].total);
+    }
 
     res.json({ orders: rows, total, page, limit });
   } catch (err) {
@@ -1647,42 +2339,234 @@ app.get('/api/orders', async (req, res) => {
   }
 });
 
-// Update order status
+// Update order (status + editable fields from Admin modal)
 app.patch('/api/orders/:id', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
 
   try {
-    const { status } = req.body;
-    const allowed = ['new', 'in_progress', 'completed', 'cancelled'];
-    if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
 
-    await pool.query('UPDATE orders SET status = $1 WHERE id = $2', [status, req.params.id]);
-    res.json({ success: true });
+    const body = req.body || {};
+    const allowed = ['new', 'in_progress', 'completed', 'cancelled'];
+    const hasStatus = body.status !== undefined;
+    const status = hasStatus ? String(body.status) : null;
+    if (hasStatus && !allowed.includes(status)) return res.status(400).json({ error: 'Invalid status' });
+
+    const orderRes = await pool.query(
+      `SELECT id, status, phone, price, bonus_earned, bonus_applied
+       FROM orders
+       WHERE id = $1 AND client_id = $2
+       LIMIT 1`,
+      [req.params.id, client.id]
+    );
+    if (orderRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const order = orderRes.rows[0];
+
+    const updates = [];
+    const params = [];
+    const push = (sql, value) => {
+      params.push(value);
+      updates.push(`${sql} = $${params.length}`);
+    };
+
+    if (hasStatus) push('status', status);
+    if (body.from_address !== undefined) push('from_address', String(body.from_address || '').trim());
+    if (body.to_address !== undefined) push('to_address', String(body.to_address || '').trim());
+    if (body.diagnosis !== undefined) push('diagnosis', String(body.diagnosis || '').trim());
+    if (body.price !== undefined) push('price', Math.max(0, parseFloat(body.price) || 0));
+    if (body.distance !== undefined) push('distance', Math.max(0, parseFloat(body.distance) || 0));
+    if (body.weight !== undefined) push('weight', Math.max(0, parseFloat(body.weight) || 0));
+    if (body.floor_descent !== undefined) push('floor_descent', Math.max(0, parseInt(body.floor_descent, 10) || 0));
+    if (body.floor_ascent !== undefined) push('floor_ascent', Math.max(0, parseInt(body.floor_ascent, 10) || 0));
+    if (body.medical_escort !== undefined) push('medical_escort', !!body.medical_escort);
+    if (body.trip_datetime !== undefined) push('trip_datetime', body.trip_datetime || null);
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    const updateRes = await pool.query(
+      `UPDATE orders
+       SET ${updates.join(', ')}
+       WHERE id = $${params.length + 1} AND client_id = $${params.length + 2}
+       RETURNING *`,
+      [...params, req.params.id, client.id]
+    );
+    const updatedOrder = updateRes.rows[0] || order;
+
+    const movedToCompleted = hasStatus && order.status !== 'completed' && status === 'completed';
+    if (movedToCompleted && !order.bonus_applied) {
+      const phone = normalizePhone(order.phone);
+      const bonusEarned = Math.max(0, parseInt(order.bonus_earned) || 0);
+      const orderPrice = Math.max(0, parseFloat(order.price) || 0);
+      if (phone) {
+        const accrualRes = await pool.query(`
+          WITH updated AS (
+            UPDATE customers
+            SET client_id     = $1,
+                bonus_balance = bonus_balance + $3,
+                total_orders  = total_orders + 1,
+                total_spent   = total_spent + $4,
+                updated_at    = CURRENT_TIMESTAMP
+            WHERE phone = $2 AND (client_id = $1 OR client_id IS NULL)
+            RETURNING id, phone, bonus_balance, total_orders, total_spent
+          ),
+          inserted AS (
+            INSERT INTO customers (client_id, phone, bonus_balance, total_orders, total_spent)
+            SELECT $1, $2, $3, 1, $4
+            WHERE NOT EXISTS (SELECT 1 FROM customers WHERE phone = $2)
+            RETURNING id, phone, bonus_balance, total_orders, total_spent
+          )
+          SELECT * FROM updated
+          UNION ALL
+          SELECT * FROM inserted
+          LIMIT 1
+        `, [client.id, phone, bonusEarned, orderPrice]);
+
+        await pool.query(
+          'UPDATE orders SET bonus_applied = TRUE, bonus_applied_at = CURRENT_TIMESTAMP WHERE id = $1 AND client_id = $2',
+          [req.params.id, client.id]
+        );
+
+        console.log('[LOYALTY][STATUS] completed accrual applied', {
+          orderId: req.params.id,
+          clientId: client.id,
+          phone,
+          bonusEarned,
+          orderPrice,
+          row: accrualRes.rows[0] || null,
+        });
+      }
+    }
+
+    try {
+      const sheetOrder = {
+        orderNumber: updatedOrder.order_number,
+        customer_name: updatedOrder.customer_name,
+        phone: updatedOrder.phone,
+        email: updatedOrder.customer_email,
+        from_address: updatedOrder.from_address,
+        to_address: updatedOrder.to_address,
+        distance: updatedOrder.distance,
+        price: updatedOrder.price,
+        weight: updatedOrder.weight,
+        diagnosis: updatedOrder.diagnosis,
+        comment: updatedOrder.comment,
+        floor_descent: updatedOrder.floor_descent,
+        floor_ascent: updatedOrder.floor_ascent,
+        medical_escort: updatedOrder.medical_escort,
+        need_oxygen: updatedOrder.need_oxygen,
+        round_trip: updatedOrder.round_trip,
+        status: updatedOrder.status,
+        trip_datetime: updatedOrder.trip_datetime || null,
+      };
+      const spreadsheetIdRes = await pool.query('SELECT google_spreadsheet_id FROM clients WHERE id = $1 LIMIT 1', [client.id]);
+      const spreadsheetId = spreadsheetIdRes.rows[0]?.google_spreadsheet_id || null;
+      if (spreadsheetId) {
+        upsertOrderInSheet(sheetOrder, spreadsheetId).catch((e) => {
+          console.error('❌ Sheets sync on order update error:', e.message);
+        });
+      }
+    } catch (syncErr) {
+      console.error('❌ Failed to schedule sheets sync after order patch:', syncErr.message);
+    }
+
+    res.json({ success: true, order: updatedOrder });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/orders/:id/archive', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+
+  try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+
+    const archived = !!(req.body && req.body.archived);
+    const updateRes = await pool.query(
+      `UPDATE orders
+       SET archived = $1
+       WHERE id = $2 AND client_id = $3
+       RETURNING id, archived`,
+      [archived, req.params.id, client.id]
+    );
+
+    if (updateRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    return res.json({ success: true, archived: updateRes.rows[0].archived });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/orders/:id', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+
+  try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+
+    const delRes = await pool.query(
+      'DELETE FROM orders WHERE id = $1 AND client_id = $2 RETURNING id',
+      [req.params.id, client.id]
+    );
+    if (delRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 });
 
 // Публичный endpoint для виджета — без API-ключа
 app.get('/api/pricing/public', async (req, res) => {
   try {
+    const apiKey = req.headers['x-api-key'];
+    let scoped = null;
+    if (apiKey) {
+      const client = await resolveClientByApiKey(apiKey);
+      if (client) scoped = buildClientScopedConfig(client);
+    }
+
     res.json({
-      per_km:           pricingCache.per_km           || 45,
-      base_fixed_add:   pricingCache.base_fixed_add   || 0,
-      base_coeff:       pricingCache.base_coeff       || 0,
-      waiting_30min:    pricingCache.waiting_30min     || 500,
-      oxygen_fee:       pricingCache.oxygen_fee        || 800,
-      no_escort_fee:    pricingCache.no_escort_fee     || 300,
-      round_trip_type:  pricingCache.round_trip_type   || 0,
-      round_trip_value: pricingCache.round_trip_value  || 80,
-      floor_tiers:      floorTiersCache,
-      city_rates:       cityRatesCache,
-      company:          companyCache,
+      per_km:           scoped?.pricing.per_km ?? pricingCache.per_km ?? 45,
+      base_fixed_add:   scoped?.pricing.base_fixed_add ?? pricingCache.base_fixed_add ?? 0,
+      base_coeff:       scoped?.pricing.base_coeff ?? pricingCache.base_coeff ?? 0,
+      waiting_30min:    scoped?.pricing.waiting_30min ?? pricingCache.waiting_30min ?? 500,
+      oxygen_fee:       scoped?.pricing.oxygen_fee ?? pricingCache.oxygen_fee ?? 800,
+      no_escort_fee:    scoped?.pricing.no_escort_fee ?? pricingCache.no_escort_fee ?? 300,
+      round_trip_type:  scoped?.pricing.round_trip_type ?? pricingCache.round_trip_type ?? 0,
+      round_trip_value: scoped?.pricing.round_trip_value ?? pricingCache.round_trip_value ?? 80,
+      floor_tiers:      scoped?.floor_tiers || floorTiersCache,
+      city_rates:       scoped?.city_rates || cityRatesCache,
+      company:          scoped?.company || companyCache,
       bonus: {
-        enabled: !!pricingCache.loyalty_enabled,
-        percent: pricingCache.loyalty_percent || 5
+        enabled: !!(scoped?.loyalty.loyalty_enabled ?? pricingCache.loyalty_enabled),
+        percent: scoped?.loyalty.loyalty_percent ?? pricingCache.loyalty_percent ?? 5,
+        max_usage_percent: scoped?.loyalty.loyalty_max_usage_percent ?? 100,
       },
+      calculator_fields: {
+        medical_escort: scoped?.raw?.calculator_fields?.medical_escort !== false,
+        need_oxygen: scoped?.raw?.calculator_fields?.need_oxygen !== false,
+        email: scoped?.raw?.calculator_fields?.email !== false,
+        comment: scoped?.raw?.calculator_fields?.comment !== false,
+        diagnosis: scoped?.raw?.calculator_fields?.diagnosis !== false,
+        escort_count: scoped?.raw?.calculator_fields?.escort_count !== false,
+        round_trip: scoped?.raw?.calculator_fields?.round_trip !== false,
+        trip_date: scoped?.raw?.calculator_fields?.trip_date !== false,
+      },
+      widget_display_mode: scoped?.raw?.widget_display_mode || 'hybrid',
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1691,12 +2575,14 @@ app.get('/api/pricing/public', async (req, res) => {
 
 // Pricing endpoints
 app.get('/api/pricing', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
-    if (pool) {
-      const result = await pool.query('SELECT key, value, label, updated_at FROM pricing_settings ORDER BY key');
-      return res.json({ pricing: result.rows, cache: pricingCache });
-    }
-    res.json({ pricing: [], cache: pricingCache });
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+    const scoped = buildClientScopedConfig(client);
+    const rows = Object.entries(scoped.pricing).map(([key, value]) => ({ key, value, label: key }));
+    res.json({ pricing: rows, cache: scoped.pricing });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1707,20 +2593,28 @@ app.put('/api/pricing', async (req, res) => {
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
 
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+
     const updates = req.body;
     const allowed = ['per_km', 'base_fixed_add', 'base_coeff', 'waiting_30min', 'oxygen_fee', 'no_escort_fee', 'round_trip_type', 'round_trip_value'];
 
     const allowNegative = new Set(['base_fixed_add', 'base_coeff', 'round_trip_value']);
+    const nextPricing = { ...buildClientScopedConfig(client).pricing };
     for (const [key, value] of Object.entries(updates)) {
       if (!allowed.includes(key)) continue;
       const num = parseFloat(value);
       if (isNaN(num)) return res.status(400).json({ error: `Invalid value for ${key}` });
       if (!allowNegative.has(key) && num < 0) return res.status(400).json({ error: `${key} cannot be negative` });
-      await pool.query('INSERT INTO pricing_settings (key, value, label) VALUES ($1,$2,$3) ON CONFLICT (key) DO UPDATE SET value=$2', [key, num, key]);
-      pricingCache[key] = num;
+      nextPricing[key] = num;
     }
 
-    res.json({ success: true, pricing: pricingCache });
+    await saveClientScopedSettings(client.id, (current) => ({
+      ...current,
+      pricing: nextPricing,
+    }));
+
+    res.json({ success: true, pricing: nextPricing });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1728,8 +2622,13 @@ app.put('/api/pricing', async (req, res) => {
 
 // Company settings
 app.get('/api/company', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
-    res.json({ settings: companyCache });
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+    const scoped = buildClientScopedConfig(client);
+    res.json({ settings: scoped.company });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1739,13 +2638,84 @@ app.put('/api/company', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const allowed = ['base_address', 'base_coords', 'policy_url', 'agreement_url'];
+    const nextCompany = { ...buildClientScopedConfig(client).company };
     for (const [key, value] of Object.entries(req.body)) {
       if (!allowed.includes(key)) continue;
-      await pool.query('INSERT INTO company_settings (key, value, label) VALUES ($1,$2,$3) ON CONFLICT (key) DO UPDATE SET value=$2', [key, value, key]);
-      companyCache[key] = value;
+      nextCompany[key] = value;
     }
-    res.json({ success: true, settings: companyCache });
+    await saveClientScopedSettings(client.id, (current) => ({
+      ...current,
+      company: nextCompany,
+    }));
+    res.json({ success: true, settings: nextCompany });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/calculator-fields', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+    const settings = parseClientSettings(client.settings);
+    const next = {
+      medical_escort: settings?.calculator_fields?.medical_escort !== false,
+      need_oxygen: settings?.calculator_fields?.need_oxygen !== false,
+      email: settings?.calculator_fields?.email !== false,
+      comment: settings?.calculator_fields?.comment !== false,
+      diagnosis: settings?.calculator_fields?.diagnosis !== false,
+      escort_count: settings?.calculator_fields?.escort_count !== false,
+      round_trip: settings?.calculator_fields?.round_trip !== false,
+      trip_date: settings?.calculator_fields?.trip_date !== false,
+    };
+    const mode = settings?.widget_display_mode || 'hybrid';
+    res.json({ fields: next, widget_display_mode: mode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/calculator-fields', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+
+    const incoming = req.body || {};
+    const allowed = ['medical_escort', 'need_oxygen', 'email', 'comment', 'diagnosis', 'escort_count', 'round_trip', 'trip_date'];
+    const allowedModes = new Set(['page_only', 'drawer_only', 'hybrid']);
+    const current = parseClientSettings(client.settings);
+    const next = {
+      medical_escort: current?.calculator_fields?.medical_escort !== false,
+      need_oxygen: current?.calculator_fields?.need_oxygen !== false,
+      email: current?.calculator_fields?.email !== false,
+      comment: current?.calculator_fields?.comment !== false,
+      diagnosis: current?.calculator_fields?.diagnosis !== false,
+      escort_count: current?.calculator_fields?.escort_count !== false,
+      round_trip: current?.calculator_fields?.round_trip !== false,
+      trip_date: current?.calculator_fields?.trip_date !== false,
+    };
+    const nextMode = allowedModes.has(incoming.widget_display_mode)
+      ? incoming.widget_display_mode
+      : (current?.widget_display_mode || 'hybrid');
+
+    for (const key of allowed) {
+      if (incoming[key] !== undefined) next[key] = !!incoming[key];
+    }
+
+    await saveClientScopedSettings(client.id, (prev) => ({
+      ...prev,
+      calculator_fields: next,
+      widget_display_mode: nextMode,
+    }));
+
+    res.json({ success: true, fields: next, widget_display_mode: nextMode });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1753,8 +2723,13 @@ app.put('/api/company', async (req, res) => {
 
 // Floor tiers
 app.get('/api/pricing/floor-tiers', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
-    res.json({ tiers: floorTiersCache });
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+    const scoped = buildClientScopedConfig(client);
+    res.json({ tiers: scoped.floor_tiers });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1764,20 +2739,22 @@ app.put('/api/pricing/floor-tiers', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const { tiers } = req.body; // [{direction, weight_from, weight_to, price_per_floor}]
     if (!Array.isArray(tiers)) return res.status(400).json({ error: 'tiers must be array' });
 
-    await pool.query('DELETE FROM pricing_floor_tiers');
-    for (const t of tiers) {
-      await pool.query(
-        'INSERT INTO pricing_floor_tiers (direction, weight_from, weight_to, price_per_floor) VALUES ($1,$2,$3,$4)',
-        [t.direction, t.weight_from, t.weight_to || null, t.price_per_floor]
-      );
-    }
-    const tiersRes = await pool.query('SELECT * FROM pricing_floor_tiers ORDER BY direction, weight_from');
-    floorTiersCache.descent = tiersRes.rows.filter(r => r.direction === 'descent');
-    floorTiersCache.ascent  = tiersRes.rows.filter(r => r.direction === 'ascent');
-    res.json({ success: true, tiers: floorTiersCache });
+    const nextTiers = {
+      descent: tiers.filter(t => t.direction === 'descent'),
+      ascent: tiers.filter(t => t.direction === 'ascent'),
+    };
+
+    await saveClientScopedSettings(client.id, (current) => ({
+      ...current,
+      floor_tiers: nextTiers,
+    }));
+
+    res.json({ success: true, tiers: nextTiers });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1785,8 +2762,13 @@ app.put('/api/pricing/floor-tiers', async (req, res) => {
 
 // City rates
 app.get('/api/pricing/city-rates', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
-    res.json({ rates: cityRatesCache });
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+    const scoped = buildClientScopedConfig(client);
+    res.json({ rates: scoped.city_rates });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1796,15 +2778,19 @@ app.post('/api/pricing/city-rates', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const { city_name, rate_type, value, is_fixed_price, note } = req.body;
     if (!city_name) return res.status(400).json({ error: 'city_name required' });
-    const insertRes = await pool.query(
-      'INSERT INTO pricing_city_rates (city_name, rate_type, value, is_fixed_price, note) VALUES ($1,$2,$3,$4,$5) RETURNING id',
-      [city_name, rate_type || 'percent', parseFloat(value) || 0, is_fixed_price ? true : false, note || '']
-    );
-    const ratesRes = await pool.query('SELECT * FROM pricing_city_rates ORDER BY city_name');
-    cityRatesCache = ratesRes.rows;
-    res.json({ success: true, id: insertRes.rows[0].id, rates: cityRatesCache });
+    const scoped = buildClientScopedConfig(client);
+    const nextRates = [...(scoped.city_rates || [])];
+    const id = Date.now();
+    nextRates.push({ id, city_name, rate_type: rate_type || 'percent', value: parseFloat(value) || 0, is_fixed_price: !!is_fixed_price, note: note || '' });
+    await saveClientScopedSettings(client.id, (current) => ({
+      ...current,
+      city_rates: nextRates,
+    }));
+    res.json({ success: true, id, rates: nextRates });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1814,14 +2800,27 @@ app.put('/api/pricing/city-rates/:id', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const { city_name, rate_type, value, is_fixed_price, note } = req.body;
-    await pool.query(
-      'UPDATE pricing_city_rates SET city_name=$1, rate_type=$2, value=$3, is_fixed_price=$4, note=$5 WHERE id=$6',
-      [city_name, rate_type, parseFloat(value), is_fixed_price ? true : false, note || '', req.params.id]
-    );
-    const ratesRes = await pool.query('SELECT * FROM pricing_city_rates ORDER BY city_name');
-    cityRatesCache = ratesRes.rows;
-    res.json({ success: true, rates: cityRatesCache });
+    const scoped = buildClientScopedConfig(client);
+    const id = String(req.params.id);
+    const nextRates = (scoped.city_rates || []).map((r) => {
+      if (String(r.id) !== id) return r;
+      return {
+        ...r,
+        city_name,
+        rate_type,
+        value: parseFloat(value),
+        is_fixed_price: !!is_fixed_price,
+        note: note || '',
+      };
+    });
+    await saveClientScopedSettings(client.id, (current) => ({
+      ...current,
+      city_rates: nextRates,
+    }));
+    res.json({ success: true, rates: nextRates });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1831,10 +2830,16 @@ app.delete('/api/pricing/city-rates/:id', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
   try {
-    await pool.query('DELETE FROM pricing_city_rates WHERE id=$1', [req.params.id]);
-    const ratesRes = await pool.query('SELECT * FROM pricing_city_rates ORDER BY city_name');
-    cityRatesCache = ratesRes.rows;
-    res.json({ success: true, rates: cityRatesCache });
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+    const scoped = buildClientScopedConfig(client);
+    const id = String(req.params.id);
+    const nextRates = (scoped.city_rates || []).filter(r => String(r.id) !== id);
+    await saveClientScopedSettings(client.id, (current) => ({
+      ...current,
+      city_rates: nextRates,
+    }));
+    res.json({ success: true, rates: nextRates });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1921,7 +2926,7 @@ app.get('/api/integrations', async (req, res) => {
       try {
         const me = await telegramRequest(token, 'getMe', {});
         if (me.ok) bot_username = me.result.username;
-      } catch (_) {}
+      } catch {}
     }
 
     // Email сервисного аккаунта Google
@@ -1930,12 +2935,13 @@ app.get('/api/integrations', async (req, res) => {
       try {
         const keyData = JSON.parse(fs.readFileSync(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, 'utf8'));
         sheets_service_email = keyData.client_email || null;
-      } catch (_) {}
+      } catch {}
     }
 
     res.json({
       telegram_chat_id:      client.telegram_chat_id      || null,
       google_spreadsheet_id: client.google_spreadsheet_id || null,
+      google_spreadsheet_url: client.google_spreadsheet_id ? `https://docs.google.com/spreadsheets/d/${client.google_spreadsheet_id}/edit` : null,
       bot_username,
       sheets_service_email,
     });
@@ -2014,6 +3020,73 @@ app.get('/api/sheets/test-client', async (req, res) => {
   }
 });
 
+// POST /api/sheets/sync-client — принудительная синхронизация всех заявок клиента в Google Sheets
+app.post('/api/sheets/sync-client', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  if (!sheetsClient) return res.status(500).json({ error: 'Google Sheets не настроен на сервере' });
+  try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
+
+    const clientRes = await pool.query('SELECT google_spreadsheet_id FROM clients WHERE id = $1 LIMIT 1', [client.id]);
+    const spreadsheetId = clientRes.rows[0]?.google_spreadsheet_id;
+    if (!spreadsheetId) return res.status(400).json({ error: 'ID таблицы не указан. Введите его в настройках.' });
+
+    const ordersRes = await pool.query(
+      `SELECT order_number, customer_name, phone, customer_email, from_address, to_address, distance, price,
+              weight, diagnosis, floor_descent, floor_ascent, medical_escort, need_oxygen, round_trip,
+              comment, status, trip_datetime
+       FROM orders
+       WHERE client_id = $1
+       ORDER BY created_at ASC`,
+      [client.id]
+    );
+
+    const sheetName = process.env.GOOGLE_SHEET_NAME || 'Заявки';
+    await ensureSheetHeaders(spreadsheetId, sheetName);
+
+    const rows = ordersRes.rows.map((o) => buildSheetOrderRow({
+      orderNumber: o.order_number,
+      customer_name: o.customer_name,
+      phone: o.phone,
+      email: o.customer_email,
+      from_address: o.from_address,
+      to_address: o.to_address,
+      distance: o.distance,
+      price: o.price,
+      weight: o.weight,
+      diagnosis: o.diagnosis,
+      floor_descent: o.floor_descent,
+      floor_ascent: o.floor_ascent,
+      medical_escort: o.medical_escort,
+      need_oxygen: o.need_oxygen,
+      round_trip: o.round_trip,
+      comment: o.comment,
+      status: o.status,
+      trip_datetime: o.trip_datetime,
+    }));
+
+    await sheetsClient.spreadsheets.values.clear({
+      spreadsheetId,
+      range: `${sheetName}!A2:S`,
+    });
+
+    if (rows.length > 0) {
+      await sheetsClient.spreadsheets.values.update({
+        spreadsheetId,
+        range: `${sheetName}!A2:S`,
+        valueInputOption: 'USER_ENTERED',
+        requestBody: { values: rows },
+      });
+    }
+
+    res.json({ success: true, synced: rows.length, spreadsheet_id: spreadsheetId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Email test endpoint
 app.get('/api/email/test', async (req, res) => {
   if (!resendManager) {
@@ -2041,13 +3114,17 @@ app.get('/api/email/test', async (req, res) => {
 
 // ─── LOYALTY: получить баланс бонусов по телефону ───────────────────────────
 app.get('/api/loyalty/balance', async (req, res) => {
+  const apiKey = req.headers['x-api-key'];
+  if (!apiKey) return res.status(401).json({ error: 'API key required' });
   const { phone } = req.query;
   if (!phone) return res.status(400).json({ error: 'phone required' });
   if (!pool) return res.json({ phone, bonus_balance: 0, total_orders: 0 });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const { rows } = await pool.query(
-      'SELECT bonus_balance, total_orders, total_spent FROM customers WHERE phone = $1',
-      [normalizePhone(phone)]
+      'SELECT bonus_balance, total_orders, total_spent FROM customers WHERE client_id = $1 AND phone = $2',
+      [client.id, normalizePhone(phone)]
     );
     if (rows.length === 0) return res.json({ phone, bonus_balance: 0, total_orders: 0 });
     res.json({ phone, ...rows[0] });
@@ -2062,13 +3139,15 @@ app.get('/api/loyalty/customers', async (req, res) => {
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
   if (!pool) return res.json({ customers: [] });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const limit  = parseInt(req.query.limit)  || 50;
     const offset = parseInt(req.query.offset) || 0;
     const { rows } = await pool.query(
-      'SELECT id, phone, bonus_balance, total_orders, total_spent, created_at FROM customers ORDER BY total_spent DESC LIMIT $1 OFFSET $2',
-      [limit, offset]
+      'SELECT id, phone, bonus_balance, total_orders, total_spent, created_at FROM customers WHERE client_id = $1 ORDER BY total_spent DESC LIMIT $2 OFFSET $3',
+      [client.id, limit, offset]
     );
-    const countRes = await pool.query('SELECT COUNT(*) FROM customers');
+    const countRes = await pool.query('SELECT COUNT(*) FROM customers WHERE client_id = $1', [client.id]);
     res.json({ customers: rows, total: parseInt(countRes.rows[0].count) });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2083,14 +3162,28 @@ app.post('/api/loyalty/adjust', async (req, res) => {
   if (!phone || delta === undefined) return res.status(400).json({ error: 'phone and delta required' });
   if (!pool) return res.status(503).json({ error: 'DB not available' });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const { rows } = await pool.query(`
-      INSERT INTO customers (phone, bonus_balance)
-      VALUES ($1, GREATEST(0, $2))
-      ON CONFLICT (phone) DO UPDATE
-        SET bonus_balance = GREATEST(0, customers.bonus_balance + $2),
+      WITH updated AS (
+        UPDATE customers
+        SET client_id = $1,
+            bonus_balance = GREATEST(0, bonus_balance + $3),
             updated_at = CURRENT_TIMESTAMP
-      RETURNING bonus_balance
-    `, [normalizePhone(phone), parseInt(delta)]);
+        WHERE phone = $2 AND (client_id = $1 OR client_id IS NULL)
+        RETURNING bonus_balance
+      ),
+      inserted AS (
+        INSERT INTO customers (client_id, phone, bonus_balance)
+        SELECT $1, $2, GREATEST(0, $3)
+        WHERE NOT EXISTS (SELECT 1 FROM customers WHERE phone = $2)
+        RETURNING bonus_balance
+      )
+      SELECT bonus_balance FROM updated
+      UNION ALL
+      SELECT bonus_balance FROM inserted
+      LIMIT 1
+    `, [client.id, normalizePhone(phone), parseInt(delta)]);
     res.json({ phone, bonus_balance: rows[0].bonus_balance });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -2101,9 +3194,13 @@ app.post('/api/loyalty/adjust', async (req, res) => {
 app.get('/api/loyalty/settings', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
+  const client = await resolveClientByApiKey(apiKey);
+  if (!client) return res.status(401).json({ error: 'Invalid API key' });
+  const scoped = buildClientScopedConfig(client);
   res.json({
-    loyalty_enabled: pricingCache.loyalty_enabled || 0,
-    loyalty_percent: pricingCache.loyalty_percent || 5
+    loyalty_enabled: scoped.loyalty.loyalty_enabled || 0,
+    loyalty_percent: scoped.loyalty.loyalty_percent || 5,
+    loyalty_max_usage_percent: scoped.loyalty.loyalty_max_usage_percent ?? 100,
   });
 });
 
@@ -2111,16 +3208,23 @@ app.get('/api/loyalty/settings', async (req, res) => {
 app.put('/api/loyalty/settings', async (req, res) => {
   const apiKey = req.headers['x-api-key'];
   if (!apiKey) return res.status(401).json({ error: 'API key required' });
-  const { loyalty_enabled, loyalty_percent } = req.body;
+  const { loyalty_enabled, loyalty_percent, loyalty_max_usage_percent } = req.body;
   if (!pool) return res.status(503).json({ error: 'DB not available' });
   try {
+    const client = await resolveClientByApiKey(apiKey);
+    if (!client) return res.status(401).json({ error: 'Invalid API key' });
     const enabled = loyalty_enabled ? 1 : 0;
     const percent = Math.max(0, Math.min(100, parseFloat(loyalty_percent) || 5));
-    await pool.query(`INSERT INTO pricing_settings (key, value, label) VALUES ('loyalty_enabled',$1,'Система лояльности') ON CONFLICT (key) DO UPDATE SET value=$1`, [enabled]);
-    await pool.query(`INSERT INTO pricing_settings (key, value, label) VALUES ('loyalty_percent',$1,'Процент начисления бонусов') ON CONFLICT (key) DO UPDATE SET value=$1`, [percent]);
-    pricingCache.loyalty_enabled = enabled;
-    pricingCache.loyalty_percent = percent;
-    res.json({ success: true, loyalty_enabled: enabled, loyalty_percent: percent });
+    const maxUsagePercent = Math.max(0, Math.min(100, parseFloat(loyalty_max_usage_percent ?? 100) || 100));
+    await saveClientScopedSettings(client.id, (current) => ({
+      ...current,
+      loyalty: {
+        loyalty_enabled: enabled,
+        loyalty_percent: percent,
+        loyalty_max_usage_percent: maxUsagePercent,
+      }
+    }));
+    res.json({ success: true, loyalty_enabled: enabled, loyalty_percent: percent, loyalty_max_usage_percent: maxUsagePercent });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2146,3 +3250,442 @@ app.listen(PORT, () => {
   console.log(`   POST /api/dadata/suggest`);
   console.log(`   POST /api/dadata/distance`);
 });
+
+// ─── SUPERADMIN API ────────────────────────────────────────────────
+
+// JWT для суперадминов (простая реализация)
+const jwt = require('jsonwebtoken');
+const SUPERADMIN_SECRET = process.env.SUPERADMIN_SECRET || 'superadmin-secret-key';
+
+// Middleware для проверки суперадмин токена
+function requireSuperAdmin(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'Token required' });
+  
+  try {
+    const decoded = jwt.verify(token, SUPERADMIN_SECRET);
+    req.superadmin = decoded;
+    next();
+  } catch (error) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// Расширение таблицы clients для суперадмин функционала
+async function ensureSuperAdminTables() {
+  if (!pool) return;
+  
+  try {
+    // Добавляем поля в таблицу clients
+    await pool.query(`
+      ALTER TABLE clients 
+      ADD COLUMN IF NOT EXISTS license_type VARCHAR(20) DEFAULT 'trial',
+      ADD COLUMN IF NOT EXISTS trial_until TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS paid_until TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS allowed_domains TEXT[],
+      ADD COLUMN IF NOT EXISTS company_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS contact_email VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()
+    `);
+    
+    // Создаем таблицу суперадминов
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS super_admins (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    
+    // Создаем первого суперадмина если нет
+    const adminCount = await pool.query('SELECT COUNT(*) FROM super_admins');
+    if (adminCount.rows[0].count === '0') {
+      const bcrypt = require('bcrypt');
+      const passwordHash = await bcrypt.hash('admin123', 10);
+      await pool.query(
+        'INSERT INTO super_admins (email, password_hash) VALUES ($1, $2)',
+        ['superadmin@medical-calculator', passwordHash]
+      );
+      console.log('✅ Создан суперадмин: superadmin@medical-calculator / admin123');
+    }
+  } catch (error) {
+    console.error('Error ensuring superadmin tables:', error);
+  }
+}
+
+// Авторизация суперадмина
+app.post('/api/superadmin/auth', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    const result = await pool.query(
+      'SELECT * FROM super_admins WHERE email = $1',
+      [email]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const admin = result.rows[0];
+    const bcrypt = require('bcrypt');
+    const validPassword = await bcrypt.compare(password, admin.password_hash);
+    
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const token = jwt.sign(
+      { email: admin.email, id: admin.id },
+      SUPERADMIN_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    res.json({ token, admin: { id: admin.id, email: admin.email } });
+  } catch (error) {
+    console.error('Superadmin auth error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Получение списка клиентов
+app.get('/api/superadmin/clients', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    // Сначала проверим структуру таблицы
+    const tableInfo = await pool.query(`
+      SELECT column_name, data_type 
+      FROM information_schema.columns 
+      WHERE table_name = 'clients' 
+      ORDER BY ordinal_position
+    `);
+    
+    console.log('Clients table columns:', tableInfo.rows.map(r => r.column_name));
+    
+    // Базовый запрос с обязательными полями
+    let query = `
+      SELECT 
+        c.id,
+        c.api_key
+    `;
+    
+    // Добавляем поля если они существуют
+    const columns = tableInfo.rows.map(r => r.column_name);
+    if (columns.includes('license_type')) query += `, c.license_type`;
+    if (columns.includes('trial_until')) query += `, c.trial_until`;
+    if (columns.includes('paid_until')) query += `, c.paid_until`;
+    if (columns.includes('allowed_domains')) query += `, c.allowed_domains`;
+    if (columns.includes('company_name')) query += `, c.company_name`;
+    if (columns.includes('contact_email')) query += `, c.contact_email`;
+    if (columns.includes('created_at')) query += `, c.created_at`;
+    
+    // Добавляем статистику по заказам
+    query += `,
+        COUNT(o.id) as total_orders,
+        COALESCE(SUM(o.price), 0) as total_revenue
+      FROM clients c
+      LEFT JOIN orders o ON c.id = o.client_id
+      GROUP BY c.id, c.api_key`;
+    
+    // Добавляем поля в GROUP BY если они существуют
+    if (columns.includes('license_type')) query += `, c.license_type`;
+    if (columns.includes('trial_until')) query += `, c.trial_until`;
+    if (columns.includes('paid_until')) query += `, c.paid_until`;
+    if (columns.includes('allowed_domains')) query += `, c.allowed_domains`;
+    if (columns.includes('company_name')) query += `, c.company_name`;
+    if (columns.includes('contact_email')) query += `, c.contact_email`;
+    if (columns.includes('created_at')) query += `, c.created_at`;
+    
+    query += ` ORDER BY c.id DESC`;
+    
+    console.log('Executing query:', query);
+    
+    const result = await pool.query(query);
+    
+    const clients = result.rows.map(client => ({
+      ...client,
+      allowed_domains: client.allowed_domains || []
+    }));
+    
+    // Статистика с безопасными значениями
+    const stats = {
+      total: clients.length,
+      trial: clients.filter(c => c.license_type === 'trial').length,
+      paid: clients.filter(c => c.license_type === 'paid').length,
+      blocked: clients.filter(c => c.license_type === 'blocked').length
+    };
+    
+    res.json({ clients, stats });
+  } catch (error) {
+    console.error('Error loading clients:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+});
+
+// Создание клиента
+app.post('/api/superadmin/clients', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+
+    const { company_name, contact_email, license_type, allowed_domains, trial_until, paid_until } = req.body;
+    const createdClient = await createClientProvision({
+      company_name,
+      contact_email,
+      license_type,
+      allowed_domains,
+      trial_until,
+      paid_until,
+      settings: buildDefaultClientSettings(),
+    });
+    await sendClientOnboardingEmail(createdClient, createdClient.api_key);
+
+    res.json(createdClient);
+  } catch (error) {
+    console.error('Error creating client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Обновление клиента
+app.put('/api/superadmin/clients/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    const { id } = req.params;
+    const { company_name, contact_email, license_type, allowed_domains, trial_until, paid_until } = req.body;
+    
+    const result = await pool.query(`
+      UPDATE clients 
+      SET company_name = $1, contact_email = $2, license_type = $3, 
+          allowed_domains = $4, trial_until = $5, paid_until = $6
+      WHERE id = $7
+      RETURNING *
+    `, [company_name, contact_email, license_type, allowed_domains, trial_until, paid_until, id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Удаление клиента
+app.delete('/api/superadmin/clients/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    const { id } = req.params;
+    
+    const result = await pool.query('DELETE FROM clients WHERE id = $1 RETURNING *', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+    
+    res.json({ message: 'Client deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting client:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Регенерация API ключа
+app.post('/api/superadmin/clients/:id/regenerate-key', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    const { id } = req.params;
+
+    const newApiKey = await generateUniqueApiKey();
+    
+    const result = await pool.query(
+      'UPDATE clients SET api_key = $1 WHERE id = $2 RETURNING api_key',
+      [newApiKey, id]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Client not found' });
+    }
+    
+    res.json({ api_key: newApiKey });
+  } catch (error) {
+    console.error('Error regenerating key:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Получение общей статистики
+app.get('/api/superadmin/stats', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    // Общая статистика
+    const revenueResult = await pool.query('SELECT COALESCE(SUM(price), 0) as total FROM orders');
+    const ordersResult = await pool.query('SELECT COUNT(*) as total FROM orders');
+    const clientsResult = await pool.query(`
+      SELECT COUNT(*) as total 
+      FROM clients 
+      WHERE license_type IN ('trial', 'paid')
+    `);
+    
+    const totalRevenue = parseFloat(revenueResult.rows[0].total);
+    const totalOrders = parseInt(ordersResult.rows[0].total);
+    const activeClients = parseInt(clientsResult.rows[0].total);
+    
+    res.json({
+      total_revenue: totalRevenue,
+      total_orders: totalOrders,
+      avg_order_value: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
+      active_clients: activeClients
+    });
+  } catch (error) {
+    console.error('Error loading stats:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Получение списка signup requests (для контроля автоонбординга)
+app.get('/api/superadmin/signup-requests', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const offset = parseInt(req.query.offset, 10) || 0;
+    const status = req.query.status ? String(req.query.status).trim().toLowerCase() : null;
+
+    const where = [];
+    const values = [];
+
+    if (status) {
+      where.push(`sr.status = $${values.length + 1}`);
+      values.push(status);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    values.push(limit);
+    values.push(offset);
+    const limitParam = `$${values.length - 1}`;
+    const offsetParam = `$${values.length}`;
+
+    const dataRes = await pool.query(`
+      SELECT
+        sr.id,
+        sr.company_name,
+        sr.contact_email,
+        sr.domain,
+        sr.plan_code,
+        sr.payment_provider,
+        sr.payment_id,
+        sr.status,
+        sr.license_type,
+        sr.trial_until,
+        sr.paid_until,
+        sr.client_id,
+        sr.created_at,
+        sr.updated_at,
+        c.company_name AS client_company_name,
+        c.api_key AS client_api_key
+      FROM signup_requests sr
+      LEFT JOIN clients c ON c.id = sr.client_id
+      ${whereSql}
+      ORDER BY sr.created_at DESC
+      LIMIT ${limitParam} OFFSET ${offsetParam}
+    `, values);
+
+    const countValues = status ? [status] : [];
+    const countWhereSql = status ? 'WHERE sr.status = $1' : '';
+    const countRes = await pool.query(`
+      SELECT COUNT(*)::INT AS total
+      FROM signup_requests sr
+      ${countWhereSql}
+    `, countValues);
+
+    res.json({
+      items: dataRes.rows,
+      total: countRes.rows[0]?.total || 0,
+      limit,
+      offset,
+      status: status || null,
+    });
+  } catch (error) {
+    console.error('Error loading signup requests:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Получение списка админов
+app.get('/api/superadmin/admins', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    const result = await pool.query(`
+      SELECT id, email, created_at 
+      FROM super_admins 
+      ORDER BY created_at DESC
+    `);
+    
+    res.json({ admins: result.rows });
+  } catch (error) {
+    console.error('Error loading admins:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Создание админа
+app.post('/api/superadmin/admins', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    const { email, password } = req.body;
+    
+    const bcrypt = require('bcrypt');
+    const passwordHash = await bcrypt.hash(password, 10);
+    
+    const result = await pool.query(
+      'INSERT INTO super_admins (email, password_hash) VALUES ($1, $2) RETURNING id, email, created_at',
+      [email, passwordHash]
+    );
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating admin:', error);
+    if (error.code === '23505') {
+      res.status(400).json({ error: 'Email already exists' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+// Удаление админа
+app.delete('/api/superadmin/admins/:id', requireSuperAdmin, async (req, res) => {
+  try {
+    if (!pool) return res.status(500).json({ error: 'Database not available' });
+    
+    const { id } = req.params;
+    
+    const result = await pool.query('DELETE FROM super_admins WHERE id = $1 RETURNING *', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Admin not found' });
+    }
+    
+    res.json({ message: 'Admin deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting admin:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Инициализация суперадмин таблиц при запуске
+// Вызывается в initializeDatabase() после подключения к БД
