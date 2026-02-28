@@ -1226,17 +1226,17 @@ class MedicalCalculator extends HTMLElement {
 
           :host(.mode-drawer_only) #calculatorForm,
           :host(.mode-hybrid.drawer-form-active) #calculatorForm {
-            padding-bottom: 220px;
+            padding-bottom: 130px;
           }
 
           :host(.mode-drawer_only) .result-card,
           :host(.mode-hybrid.drawer-form-active) .result-card {
             position: fixed !important;
             left: auto;
-            right: 8px;
+            right: 25px;
             bottom: 8px;
-            width: calc(min(430px, calc(100vw - 16px)) - 16px);
-            max-width: calc(min(430px, calc(100vw - 16px)) - 16px);
+            width: calc(min(430px, calc(100vw - 16px)) - 40px);
+            max-width: calc(min(430px, calc(100vw - 16px)) - 40px);
             margin: 0;
             z-index: 1000;
           }
