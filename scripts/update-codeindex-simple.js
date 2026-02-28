@@ -80,7 +80,7 @@ function extractDescription(filePath) {
     }
     
     return 'Модуль без описания';
-  } catch (error) {
+  } catch {
     return 'Ошибка чтения';
   }
 }
@@ -122,7 +122,7 @@ function extractKeyFunctions(filePath) {
     }
     
     return 'Основной модуль';
-  } catch (error) {
+  } catch {
     return 'Ошибка анализа';
   }
 }
@@ -132,7 +132,7 @@ function main() {
   
   // Находим файлы
   const srcFiles = findFiles(path.join(projectRoot, 'src'), 'src');
-  const rootFiles = ['medical-api-server.cjs', 'widget-build.js', 'beads-api-server.cjs', 'start.bat']
+  const rootFiles = ['medical-api-server.cjs', 'widget-build-prod.js', 'beads-api-server.cjs', 'start.bat']
     .filter(f => fs.existsSync(path.join(projectRoot, f)));
   
   const allFiles = [...rootFiles, ...srcFiles];

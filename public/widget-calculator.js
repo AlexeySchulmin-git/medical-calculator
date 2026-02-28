@@ -3,10 +3,24 @@ class MedicalCalculator extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+    this.classList.add('mode-unresolved');
     this.apiUrl = this.getAttribute('api-url') || 'http://localhost:3003';
     this.apiKey = this.getAttribute('api-key') || 'test-api-key-12345';
     this.calculatedPrice = null;
     this.calculatedDistance = null;
+    this.suggestionsCache = new Map();
+    this.suggestionsCacheTtlMs = 60 * 1000;
+    this.suggestionsReqSeq = 0;
+    this.userGeo = null;
+    this.userGeoRequested = false;
+    this.calculatorFields = {
+      medical_escort: true,
+      need_oxygen: true,
+      email: true,
+      comment: true,
+      trip_date: true,
+    };
+    this.widgetDisplayMode = 'hybrid';
     // Тарифы по умолчанию (заменяются данными из БД)
     this.pricing = {
       per_km: 45,
@@ -19,22 +33,338 @@ class MedicalCalculator extends HTMLElement {
       floor_tiers: { descent: [], ascent: [] },
       city_rates: [],
     };
+    this._launcherHintTimer = null;
+    this._launcherHintHideTimer = null;
+    this._onExternalFocusIn = null;
+    this._onDrawerEsc = null;
+    this._onViewportResize = null;
+    this._onCalculatorScroll = null;
+  }
+
+  applyBasePointAsDefaultFromAddress() {
+    const fromAddress = this.shadowRoot.getElementById('fromAddress');
+    if (!fromAddress) return;
+    const hasValue = !!fromAddress.value.trim();
+    const hasCoords = !!(fromAddress.dataset.lat && fromAddress.dataset.lon);
+    if (hasValue || hasCoords) return;
+
+    const baseCoords = this.companyBaseCoords || '';
+    const [latRaw, lonRaw] = baseCoords.split(',').map((v) => Number(String(v).trim()));
+    if (!Number.isFinite(latRaw) || !Number.isFinite(lonRaw)) return;
+
+    fromAddress.value = this.companyBaseAddress || 'Базовая точка';
+    fromAddress.dataset.lat = String(latRaw);
+    fromAddress.dataset.lon = String(lonRaw);
+    fromAddress.dataset.fullAddress = this.companyBaseAddress || fromAddress.value;
+    fromAddress.classList.add('success');
+    const clearBtn = this.shadowRoot.getElementById('clearFromAddress');
+    if (clearBtn) clearBtn.classList.add('visible');
+  }
+
+  setupAddressOverflowAssist(input, echoId) {
+    const echo = this.shadowRoot.getElementById(echoId);
+    if (!input || !echo) return;
+
+    const updateEcho = () => this.updateAddressEchoForInput(input, echo);
+    const ensureCaretVisible = () => {
+      const caret = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+      const end = input.value.length;
+      if (caret >= end - 1) {
+        input.scrollLeft = input.scrollWidth;
+      } else if (caret <= 1) {
+        input.scrollLeft = 0;
+      }
+    };
+
+    input.addEventListener('pointerdown', () => {
+      input.dataset.pointerFocus = '1';
+    });
+
+    input.addEventListener('focus', () => {
+      requestAnimationFrame(() => {
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
+        ensureCaretVisible();
+        updateEcho();
+      });
+    });
+
+    input.addEventListener('click', () => requestAnimationFrame(ensureCaretVisible));
+    input.addEventListener('keyup', () => requestAnimationFrame(ensureCaretVisible));
+
+    input.addEventListener('input', () => {
+      requestAnimationFrame(() => {
+        ensureCaretVisible();
+        updateEcho();
+      });
+    });
+
+    input.addEventListener('change', updateEcho);
+    window.addEventListener('resize', updateEcho);
+    requestAnimationFrame(updateEcho);
+  }
+
+  updateAddressEchoForInput(input, echoEl) {
+    const value = (input.value || '').trim();
+    if (!value) {
+      echoEl.classList.remove('show');
+      echoEl.textContent = '';
+      return;
+    }
+
+    const isOverflowing = this.isInputTextOverflowing(input, value);
+    if (!isOverflowing) {
+      echoEl.classList.remove('show');
+      echoEl.textContent = '';
+      return;
+    }
+
+    echoEl.textContent = value;
+    echoEl.classList.add('show');
+  }
+
+  isInputTextOverflowing(input, value) {
+    if (!value) return false;
+    const style = window.getComputedStyle(input);
+    const canvas = this._textMeasureCanvas || (this._textMeasureCanvas = document.createElement('canvas'));
+    const context = canvas.getContext('2d');
+    if (!context) return input.scrollWidth > input.clientWidth + 2;
+    context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const textWidth = context.measureText(value).width;
+    const horizontalPadding = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    const clearBtn = input.parentElement ? input.parentElement.querySelector('.clear-btn') : null;
+    const clearButtonSpace = clearBtn && clearBtn.classList.contains('visible')
+      ? (clearBtn.offsetWidth || 32) + 10
+      : 10;
+    const availableWidth = Math.max(0, input.clientWidth - horizontalPadding - clearButtonSpace);
+    return textWidth > availableWidth;
+  }
+
+  initFrontendCustomSelects() {
+    const selects = Array.from(this.shadowRoot.querySelectorAll('select.form-input'));
+    selects.forEach((select) => {
+      if (!select.id || select.dataset.customSelectInit === '1') return;
+      select.dataset.customSelectInit = '1';
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'custom-select-w';
+      wrapper.dataset.for = select.id;
+
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'custom-select-trigger';
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-expanded', 'false');
+
+      const menu = document.createElement('div');
+      menu.className = 'custom-select-menu';
+      menu.setAttribute('role', 'listbox');
+
+      const closeDropdown = () => {
+        wrapper.classList.remove('open');
+        trigger.setAttribute('aria-expanded', 'false');
+      };
+
+      const openDropdown = () => {
+        wrapper.classList.add('open');
+        trigger.setAttribute('aria-expanded', 'true');
+      };
+
+      const focusActiveOrFirst = () => {
+        const active = menu.querySelector('.custom-select-item.active') || menu.querySelector('.custom-select-item');
+        if (active) active.focus();
+      };
+
+      const renderOptions = () => {
+        menu.innerHTML = '';
+        Array.from(select.options).forEach((opt) => {
+          const item = document.createElement('div');
+          item.className = 'custom-select-item';
+          if (opt.value === select.value) item.classList.add('active');
+          item.dataset.value = opt.value;
+          item.textContent = opt.textContent || '';
+          item.tabIndex = -1;
+          item.setAttribute('role', 'option');
+          item.setAttribute('aria-selected', opt.value === select.value ? 'true' : 'false');
+          item.addEventListener('click', () => {
+            select.value = opt.value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            closeDropdown();
+          });
+          item.addEventListener('keydown', (event) => {
+            const items = Array.from(menu.querySelectorAll('.custom-select-item'));
+            const idx = items.indexOf(item);
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              const next = items[Math.min(idx + 1, items.length - 1)];
+              if (next) next.focus();
+            } else if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              const prev = items[Math.max(idx - 1, 0)];
+              if (prev) prev.focus();
+            } else if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              item.click();
+              trigger.focus();
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              closeDropdown();
+              trigger.focus();
+            }
+          });
+          menu.appendChild(item);
+        });
+      };
+
+      const syncFromNative = () => {
+        const selected = select.options[select.selectedIndex];
+        trigger.textContent = (selected && selected.textContent) ? selected.textContent : 'Выберите';
+        menu.querySelectorAll('.custom-select-item').forEach((item) => {
+          const active = item.dataset.value === select.value;
+          item.classList.toggle('active', active);
+          item.setAttribute('aria-selected', active ? 'true' : 'false');
+        });
+      };
+
+      trigger.addEventListener('click', () => {
+        const willOpen = !wrapper.classList.contains('open');
+        this.shadowRoot.querySelectorAll('.custom-select-w.open').forEach((other) => {
+          if (other !== wrapper) {
+            other.classList.remove('open');
+            const btn = other.querySelector('.custom-select-trigger');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+          }
+        });
+        if (willOpen) {
+          openDropdown();
+          requestAnimationFrame(focusActiveOrFirst);
+        } else {
+          closeDropdown();
+        }
+      });
+
+      trigger.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openDropdown();
+          requestAnimationFrame(focusActiveOrFirst);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          closeDropdown();
+        }
+      });
+
+      select.addEventListener('change', syncFromNative);
+
+      renderOptions();
+      syncFromNative();
+
+      select.classList.add('native-select-hidden');
+      select.insertAdjacentElement('afterend', wrapper);
+      wrapper.appendChild(trigger);
+      wrapper.appendChild(menu);
+    });
+
+    if (!this._onCustomSelectOutsideClick) {
+      this._onCustomSelectOutsideClick = (event) => {
+        const path = event.composedPath ? event.composedPath() : [];
+        this.shadowRoot.querySelectorAll('.custom-select-w.open').forEach((openWrap) => {
+          if (!path.includes(openWrap)) {
+            openWrap.classList.remove('open');
+            const btn = openWrap.querySelector('.custom-select-trigger');
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+          }
+        });
+      };
+      this.shadowRoot.addEventListener('click', this._onCustomSelectOutsideClick);
+    }
   }
 
   connectedCallback() {
     this.render();
+    this.updateCompactLayoutMode();
     this.attachEventListeners();
     this.loadPricing();
+    this.ensureUserGeo();
+    this._onViewportResize = () => this.updateCompactLayoutMode();
+    window.addEventListener('resize', this._onViewportResize);
+  }
+
+  disconnectedCallback() {
+    if (this._launcherHintTimer) clearTimeout(this._launcherHintTimer);
+    if (this._launcherHintHideTimer) clearTimeout(this._launcherHintHideTimer);
+    if (this._onExternalFocusIn) {
+      document.removeEventListener('focusin', this._onExternalFocusIn, true);
+      this._onExternalFocusIn = null;
+    }
+    if (this._onDrawerEsc) {
+      document.removeEventListener('keydown', this._onDrawerEsc);
+      this._onDrawerEsc = null;
+    }
+    if (this._onViewportResize) {
+      window.removeEventListener('resize', this._onViewportResize);
+      this._onViewportResize = null;
+    }
+    if (this._onCalculatorScroll) {
+      const pageCalculator = this.shadowRoot?.querySelector('.calculator');
+      if (pageCalculator) pageCalculator.removeEventListener('scroll', this._onCalculatorScroll);
+      this._onCalculatorScroll = null;
+    }
+  }
+
+  updateCompactLayoutMode() {
+    const calculator = this.shadowRoot?.querySelector('.calculator');
+    const calculatorWidth = calculator ? calculator.getBoundingClientRect().width : 0;
+    const compact = window.innerWidth <= 900 || (calculatorWidth > 0 && calculatorWidth <= 560);
+    this.classList.toggle('compact-layout', compact);
+    this.syncResultCardVisibilityForDrawerMode();
+  }
+
+  syncResultCardVisibilityForDrawerMode() {
+    const resultCard = this.shadowRoot?.getElementById('resultCard');
+    if (!resultCard) return;
+
+    const isDrawerMode = this.widgetDisplayMode === 'drawer_only' || this.widgetDisplayMode === 'hybrid';
+    const isFormActive = this.classList.contains('drawer-form-active');
+
+    if (isDrawerMode && !isFormActive) {
+      resultCard.classList.add('hidden');
+      resultCard.style.removeProperty('transform');
+      return;
+    }
+
+    if (this._lastPrice && this.hasMinimumResultInputsValid()) {
+      resultCard.classList.remove('hidden');
+    }
+
+    this.updateDrawerResultFollowScroll();
+  }
+
+  updateDrawerResultFollowScroll() {
+    const resultCard = this.shadowRoot?.getElementById('resultCard');
+    if (!resultCard) return;
+    resultCard.style.removeProperty('transform');
   }
 
   async loadPricing() {
     try {
-      const res = await fetch(`${this.apiUrl}/api/pricing/public`);
+      const res = await fetch(`${this.apiUrl}/api/pricing/public`, {
+        headers: {
+          'X-API-Key': this.apiKey
+        }
+      });
       if (!res.ok) return;
       const data = await res.json();
       this.pricing = { ...this.pricing, ...data };
+      this.calculatorFields = {
+        ...this.calculatorFields,
+        ...(data.calculator_fields || {})
+      };
+      this.widgetDisplayMode = data.widget_display_mode || 'hybrid';
       // Обновляем ссылки политики из настроек компании
       const company = data.company || {};
+      this.companyBaseAddress = company.base_address || '';
+      this.companyBaseCoords = company.base_coords || '';
       const policyLink    = this.shadowRoot.getElementById('policyLink');
       const agreementLink = this.shadowRoot.getElementById('agreementLink');
       if (policyLink    && company.policy_url)    policyLink.href    = company.policy_url;
@@ -43,16 +373,24 @@ class MedicalCalculator extends HTMLElement {
       if (this.calculatedDistance) {
         this.updateResult();
       }
+      this.applyCalculatorFieldVisibility();
+      this.applyWidgetDisplayMode();
     } catch (err) {
       console.warn('loadPricing error:', err.message);
+    } finally {
+      this.classList.remove('mode-unresolved');
     }
     // Восстанавливаем форму ПОСЛЕ загрузки pricing — чтобы bonus был доступен
     this.restoreFormState();
   }
 
   render() {
+    const now = new Date();
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     this.shadowRoot.innerHTML = `
       <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
         * {
           box-sizing: border-box;
           margin: 0;
@@ -61,9 +399,10 @@ class MedicalCalculator extends HTMLElement {
 
         :host {
           display: block;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           max-width: 100%;
           margin: 0 auto;
+          --border:         #e2e8f0;
           --w-primary:      ${this.getAttribute('primary-color')  || '#3b82f6'};
           --w-primary-dark: ${this.getAttribute('primary-dark')   || '#2563eb'};
           --w-bg:           ${this.getAttribute('bg-color')       || '#ffffff'};
@@ -73,6 +412,10 @@ class MedicalCalculator extends HTMLElement {
           --w-accent-bg:    ${this.getAttribute('accent-bg')      || 'linear-gradient(135deg,#667eea 0%,#764ba2 100%)'};
         }
 
+        :host(:not(.mode-page_only):not(.mode-drawer_only):not(.mode-hybrid)) .calculator {
+          visibility: hidden;
+        }
+
         .calculator {
           background: var(--w-bg);
           border-radius: var(--w-radius);
@@ -80,9 +423,268 @@ class MedicalCalculator extends HTMLElement {
           padding: 32px;
         }
 
+        .launcher {
+          position: fixed;
+          right: 14px;
+          bottom: 14px;
+          z-index: 1100;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          border: 0;
+          border-radius: 999px;
+          background: #ffffff;
+          color: #2563eb;
+          box-shadow: 0 10px 25px rgba(37, 99, 235, 0.24);
+          padding: 8px 12px;
+          cursor: pointer;
+        }
+
+        .launcher:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 12px 28px rgba(37, 99, 235, 0.3);
+        }
+
+        .launcher-icon {
+          width: 30px;
+          height: 30px;
+          color: #2f80ed;
+          flex-shrink: 0;
+        }
+
+        .launcher-text {
+          font-size: 14px;
+          font-weight: 700;
+          line-height: 1;
+          color: #2f80ed;
+          white-space: nowrap;
+        }
+
+        .launcher-tooltip {
+          position: fixed;
+          right: 14px;
+          bottom: 66px;
+          z-index: 1101;
+          background: #ffffff;
+          color: #334155;
+          border-radius: 10px;
+          padding: 10px 12px;
+          font-size: 12px;
+          line-height: 1.35;
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+          max-width: 240px;
+          opacity: 0;
+          transform: translateY(6px);
+          pointer-events: none;
+          transition: opacity 0.2s ease, transform 0.2s ease;
+        }
+
+        .launcher-tooltip.show {
+          opacity: 1;
+          transform: translateY(0);
+        }
+
+        .launcher-tooltip::after {
+          content: '';
+          position: absolute;
+          right: 20px;
+          top: 100%;
+          border: 6px solid transparent;
+          border-top-color: #ffffff;
+        }
+
+        .drawer-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(2, 6, 23, 0.38);
+          z-index: 1110;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.22s ease;
+        }
+
+        .drawer {
+          position: fixed;
+          top: 0;
+          right: 0;
+          height: 100vh;
+          width: min(430px, calc(100vw - 16px));
+          background: #ffffff;
+          z-index: 1111;
+          box-shadow: -16px 0 36px rgba(2, 6, 23, 0.2);
+          transform: translateX(102%);
+          transition: transform 0.22s ease;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .drawer.open {
+          transform: translateX(0);
+        }
+
+        .drawer-overlay.open {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        .drawer-head {
+          padding: 14px 14px 10px;
+          border-bottom: 1px solid #e2e8f0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+        }
+
+        .drawer-title {
+          font-size: 16px;
+          font-weight: 700;
+          color: #0f172a;
+        }
+
+        .drawer-close {
+          border: 0;
+          background: #f1f5f9;
+          color: #334155;
+          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          cursor: pointer;
+          font-size: 30px;
+          line-height: 1;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .drawer-body {
+          padding: 14px;
+          overflow-y: auto;
+        }
+
+        .drawer-text {
+          font-size: 14px;
+          color: #334155;
+          line-height: 1.45;
+          margin-bottom: 12px;
+        }
+
+        .drawer-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .drawer-actions .btn {
+          margin-top: 0;
+        }
+
+        .drawer-form-close {
+          display: none;
+        }
+
+        :host(.mode-page_only) .launcher,
+        :host(.mode-page_only) .launcher-tooltip,
+        :host(.mode-page_only) .drawer,
+        :host(.mode-page_only) .drawer-overlay {
+          display: none !important;
+        }
+
+        :host(.mode-unresolved) .calculator {
+          visibility: hidden;
+        }
+
+        :host(.mode-drawer_only) .drawer {
+          display: none;
+        }
+
+        :host(.mode-hybrid) .drawer {
+          display: none;
+        }
+
+        :host(.mode-drawer_only) .calculator {
+          position: fixed;
+          top: 0;
+          right: -110vw;
+          height: 100vh;
+          width: min(430px, calc(100vw - 16px));
+          max-width: none;
+          border-radius: 0;
+          transition: right 0.22s ease;
+          z-index: 1111;
+          overflow-y: auto;
+          padding: 18px 14px 120px;
+        }
+
+        :host(.mode-hybrid.drawer-form-active) .calculator {
+          position: fixed;
+          top: 0;
+          right: 0;
+          height: 100vh;
+          width: min(430px, calc(100vw - 16px));
+          max-width: none;
+          border-radius: 0;
+          z-index: 1111;
+          overflow-y: auto;
+          padding: 18px 14px 120px;
+          transition: right 0.22s ease;
+        }
+
+        :host(.mode-drawer_only) .calculator.open {
+          right: 0;
+        }
+
+        :host(.mode-hybrid) .calculator {
+          transition: right 0.22s ease;
+        }
+
+        :host(.mode-drawer_only) .drawer-overlay.open {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        :host(.mode-drawer_only) .drawer-form-close {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 0;
+          background: #f1f5f9;
+          color: #334155;
+          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          cursor: pointer;
+          font-size: 30px;
+          line-height: 1;
+          float: right;
+          margin-bottom: 8px;
+        }
+
+        :host(.mode-hybrid.drawer-form-active) .drawer-form-close {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 0;
+          background: #f1f5f9;
+          color: #334155;
+          border-radius: 8px;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          cursor: pointer;
+          font-size: 30px;
+          line-height: 1;
+          float: right;
+          margin-bottom: 8px;
+        }
+
         .calculator-inner {
           max-width: 600px;
           margin: 0 auto;
+          display: block;
         }
 
         .calculator-price-col {
@@ -94,14 +696,14 @@ class MedicalCalculator extends HTMLElement {
           font-weight: 700;
           color: #1e293b;
           margin-bottom: 8px;
-          text-align: center;
+          text-align: left;
         }
 
         .calculator-subtitle {
           font-size: 16px;
           color: #64748b;
           margin-bottom: 32px;
-          text-align: center;
+          text-align: left;
         }
 
         .form-group {
@@ -114,6 +716,37 @@ class MedicalCalculator extends HTMLElement {
           font-weight: 600;
           color: #334155;
           margin-bottom: 8px;
+        }
+
+        .form-label[for]::before {
+          content: '';
+          display: inline-block;
+          width: 14px;
+          height: 14px;
+          margin-right: 6px;
+          vertical-align: -2px;
+          background-repeat: no-repeat;
+          background-position: center;
+          background-size: 14px 14px;
+          opacity: 0.86;
+        }
+
+        .form-label[for='fromAddress']::before,
+        .form-label[for='toAddress']::before {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M12 22s7-5.86 7-12a7 7 0 1 0-14 0c0 6.14 7 12 7 12z' stroke='%23475569' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='10' r='2.5' stroke='%23475569' stroke-width='1.8'/%3E%3C/svg%3E");
+        }
+
+        .form-label[for='weight']::before {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M7 20h10l1.2-8.5A2 2 0 0 0 16.2 9H7.8a2 2 0 0 0-2 2.5L7 20z' stroke='%23475569' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M9.5 9a2.5 2.5 0 1 1 5 0' stroke='%23475569' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+        }
+
+        .form-label[for='floorDescent']::before,
+        .form-label[for='floorAscent']::before {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M12 3v18M7 16l5 5 5-5M7 8l5-5 5 5' stroke='%23475569' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        }
+
+        .form-label[for='phone']::before {
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='M22 16.92v2a2 2 0 0 1-2.18 2A19.86 19.86 0 0 1 3.1 4.18 2 2 0 0 1 5.1 2h2a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11l-.84.84a16 16 0 0 0 6.4 6.4l.84-.84a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92z' stroke='%23475569' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
         }
 
         .form-label.required::after {
@@ -149,19 +782,21 @@ class MedicalCalculator extends HTMLElement {
           position: absolute;
           bottom: calc(100% + 8px);
           left: 50%;
+          right: auto;
           transform: translateX(-50%);
-          background: #1e293b;
-          color: #f1f5f9;
+          background: #ffffff;
+          color: #334155;
           font-size: 12px;
           font-weight: 400;
           line-height: 1.5;
           padding: 8px 12px;
           border-radius: 8px;
-          width: 260px;
+          width: min(260px, calc(100vw - 48px));
           white-space: normal;
           z-index: 100;
           pointer-events: none;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          border: 1px solid #e2e8f0;
+          box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
         }
 
         .info-icon .tooltip::after {
@@ -169,9 +804,51 @@ class MedicalCalculator extends HTMLElement {
           position: absolute;
           top: 100%;
           left: 50%;
+          right: auto;
           transform: translateX(-50%);
           border: 6px solid transparent;
-          border-top-color: #1e293b;
+          border-top-color: #ffffff;
+        }
+
+        .form-row .form-group:first-child .info-icon .tooltip {
+          left: 0;
+          right: auto;
+          transform: none;
+        }
+
+        .form-row .form-group:first-child .info-icon .tooltip::after {
+          left: 12px;
+          right: auto;
+          transform: none;
+        }
+
+        .form-row .form-group:last-child .info-icon .tooltip {
+          left: auto;
+          right: 0;
+          transform: none;
+        }
+
+        .form-row .form-group:last-child .info-icon .tooltip::after {
+          left: auto;
+          right: 12px;
+          transform: none;
+        }
+
+        .address-echo {
+          display: none;
+          width: 100%;
+          max-width: 100%;
+          margin-bottom: 6px;
+          color: #94a3b8;
+          font-size: 13px;
+          line-height: 1.35;
+          white-space: normal;
+          word-break: normal;
+          overflow-wrap: anywhere;
+        }
+
+        .address-echo.show {
+          display: block;
         }
 
         .info-icon:hover .tooltip {
@@ -196,6 +873,109 @@ class MedicalCalculator extends HTMLElement {
           border-radius: 8px;
           transition: all 0.2s;
           font-family: inherit;
+        }
+
+        select.form-input {
+          appearance: none;
+          -webkit-appearance: none;
+          -moz-appearance: none;
+          border: 1.5px solid var(--border);
+          border-radius: 12px;
+          box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+          background: #ffffff;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' fill='none' stroke='%2364748b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 12px center;
+          background-size: 12px 8px;
+          padding-right: 38px;
+        }
+
+        select.form-input:hover {
+          background-color: #f8fafc;
+        }
+
+        .native-select-hidden {
+          display: none !important;
+        }
+
+        .custom-select-w {
+          position: relative;
+          width: 100%;
+        }
+
+        .custom-select-trigger {
+          width: 100%;
+          padding: 12px 38px 12px 16px;
+          font-size: 16px;
+          border: 1.5px solid var(--border);
+          border-radius: 12px;
+          box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+          background: #ffffff;
+          text-align: left;
+          color: #0f172a;
+          cursor: pointer;
+          position: relative;
+        }
+
+        .custom-select-trigger::after {
+          content: '';
+          position: absolute;
+          right: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 12px;
+          height: 8px;
+          background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' fill='none' stroke='%2364748b' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / 12px 8px;
+        }
+
+        .custom-select-w.open .custom-select-trigger::after {
+          transform: translateY(-50%) rotate(180deg);
+        }
+
+        .custom-select-trigger:hover {
+          background-color: #f8fafc;
+        }
+
+        .custom-select-trigger:focus {
+          outline: none;
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--w-primary) 16%, transparent), 0 8px 16px rgba(15, 23, 42, 0.12);
+        }
+
+        .custom-select-menu {
+          display: none;
+          position: absolute;
+          top: calc(100% + 6px);
+          left: 0;
+          right: 0;
+          z-index: 30;
+          background: #ffffff;
+          border-radius: 12px;
+          box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+          padding: 6px;
+          max-height: 240px;
+          overflow-y: auto;
+        }
+
+        .custom-select-w.open .custom-select-menu {
+          display: block;
+        }
+
+        .custom-select-item {
+          padding: 9px 10px;
+          border-radius: 8px;
+          font-size: 15px;
+          color: #0f172a;
+          cursor: pointer;
+        }
+
+        .custom-select-item:hover,
+        .custom-select-item.active {
+          background: #f8fafc;
+        }
+
+        select.form-input:focus {
+          border: 1.5px solid var(--w-primary);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--w-primary) 16%, transparent), 0 8px 16px rgba(15, 23, 42, 0.12);
         }
 
         .form-input:focus {
@@ -307,6 +1087,14 @@ class MedicalCalculator extends HTMLElement {
           margin-top: 4px;
         }
 
+        .suggestion-data .inline-ico {
+          width: 12px;
+          height: 12px;
+          vertical-align: -2px;
+          margin-right: 4px;
+          color: #64748b;
+        }
+
         .field-error {
           color: #ef4444;
           font-size: 12px;
@@ -394,19 +1182,95 @@ class MedicalCalculator extends HTMLElement {
         .result-card {
           background: white;
           color: #1f2937;
-          padding: 20px;
+          padding: 14px;
           border-radius: 16px;
           margin-bottom: 24px;
           box-shadow: 0 2px 8px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.06);
           transition: all 0.3s ease;
           border: 1px solid #e5e7eb;
+          position: relative;
+          top: auto;
+          width: 100%;
+          max-width: 100%;
+          margin: 0 0 24px;
+          z-index: 10;
+        }
+
+        :host(:not(.compact-layout)) .result-card {
+          position: sticky;
+          bottom: 12px;
+          z-index: 40;
+        }
+
+        :host(.compact-layout) .result-card {
+          position: fixed !important;
+          left: 8px;
+          right: 8px;
+          bottom: 8px;
+          top: auto;
+          margin: 0;
+          max-width: 100%;
+          z-index: 1000;
+        }
+
+        :host(.mode-drawer_only):not(.drawer-form-active) .result-card,
+        :host(.mode-hybrid):not(.drawer-form-active) .result-card {
+          display: none !important;
+        }
+
+        @media (min-width: 769px) {
+          :host(.mode-drawer_only) .calculator,
+          :host(.mode-hybrid.drawer-form-active) .calculator {
+            padding-bottom: 220px;
+          }
+
+          :host(.mode-drawer_only) #calculatorForm,
+          :host(.mode-hybrid.drawer-form-active) #calculatorForm {
+            padding-bottom: 220px;
+          }
+
+          :host(.mode-drawer_only) .result-card,
+          :host(.mode-hybrid.drawer-form-active) .result-card {
+            position: fixed !important;
+            left: auto;
+            right: 8px;
+            bottom: 8px;
+            width: calc(min(430px, calc(100vw - 16px)) - 16px);
+            max-width: calc(min(430px, calc(100vw - 16px)) - 16px);
+            margin: 0;
+            z-index: 1000;
+          }
+
+        }
+
+        :host(.compact-layout) #calculatorForm {
+          padding-bottom: 98px;
+        }
+
+        .result-top {
+          display: block;
+        }
+
+        .result-main {
+          min-width: 0;
         }
 
         .result-price {
-          font-size: 48px;
+          font-size: 34px;
           font-weight: 700;
-          margin-bottom: 8px;
+          margin-bottom: 6px;
           color: #4279F6;
+          will-change: transform, filter;
+        }
+
+        .result-price.price-updated {
+          animation: resultPricePulse 420ms ease;
+        }
+
+        @keyframes resultPricePulse {
+          0% { transform: scale(1); filter: brightness(1); }
+          35% { transform: scale(1.06); filter: brightness(1.12); }
+          100% { transform: scale(1); filter: brightness(1); }
         }
 
         @media (min-width: 900px) {
@@ -420,15 +1284,23 @@ class MedicalCalculator extends HTMLElement {
           color: #6b7280;
         }
 
+        .result-details .inline-ico {
+          width: 14px;
+          height: 14px;
+          vertical-align: -2px;
+          margin-left: 4px;
+          color: #64748b;
+        }
+
         .result-note {
-          font-size: 12px;
+          font-size: 11px;
           color: #9ca3af;
-          margin-top: 8px;
+          margin-top: 6px;
         }
 
         .result-options {
-          margin-top: 12px;
-          font-size: 13px;
+          margin-top: 8px;
+          font-size: 12px;
         }
 
         .result-options-title {
@@ -442,10 +1314,22 @@ class MedicalCalculator extends HTMLElement {
           background: #56CA6F;
           color: white;
           border-radius: 12px;
-          padding: 4px 12px;
+          padding: 3px 10px;
           margin: 4px 4px 0 0;
-          font-size: 12px;
+          font-size: 11px;
           font-weight: 500;
+        }
+
+        .result-cta {
+          margin-top: 10px;
+          width: 100%;
+          display: none;
+          font-size: 14px;
+          padding: 10px 14px;
+        }
+
+        .result-cta.show {
+          display: block;
         }
 
         .success-message {
@@ -490,8 +1374,8 @@ class MedicalCalculator extends HTMLElement {
           background: #eff6ff;
           border: 1.5px solid #bfdbfe;
           border-radius: 10px;
-          padding: 12px 14px;
-          margin-top: 10px;
+          padding: 10px 12px;
+          margin-bottom: 14px;
           font-size: 13px;
         }
 
@@ -581,38 +1465,149 @@ class MedicalCalculator extends HTMLElement {
         }
 
         @media (max-width: 768px) {
+          .launcher {
+            right: 8px;
+            bottom: 72px;
+            padding: 8px 10px;
+            gap: 6px;
+          }
+
+          .launcher-icon {
+            width: 24px;
+            height: 24px;
+          }
+
+          .launcher-text {
+            font-size: 12px;
+          }
+
+          .launcher-tooltip {
+            right: 8px;
+            bottom: 118px;
+            max-width: 210px;
+          }
+
+          .info-icon .tooltip {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+            width: min(260px, calc(100vw - 24px));
+          }
+
+          .info-icon .tooltip::after {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+          }
+
+          .form-row .form-group:first-child .info-icon .tooltip,
+          .form-row .form-group:last-child .info-icon .tooltip {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+          }
+
+          .form-row .form-group:first-child .info-icon .tooltip::after,
+          .form-row .form-group:last-child .info-icon .tooltip::after {
+            left: 50%;
+            right: auto;
+            transform: translateX(-50%);
+          }
+
+          .drawer {
+            width: calc(100vw - 10px);
+          }
+
+          :host(.mode-drawer_only) .calculator {
+            width: calc(100vw - 10px);
+          }
+
+          :host(.mode-hybrid.drawer-form-active) .calculator {
+            width: calc(100vw - 10px);
+          }
+
+          .calculator-inner { max-width: 100%; }
+
           .result-card {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
+            position: fixed !important;
+            left: 8px;
+            right: 8px;
+            bottom: 8px;
             top: auto;
             margin: 0;
-            padding: 16px;
-            border-radius: 16px 16px 0 0;
-            box-shadow: 0 -2px 12px rgba(0,0,0,0.12);
+            max-width: 100%;
+            border-radius: 12px;
             z-index: 1000;
+            padding: 7px 8px;
+            box-shadow: 0 -3px 14px rgba(0,0,0,0.14);
+            max-height: 34vh;
+            overflow-y: auto;
+          }
+
+          :host(.mode-drawer_only) .result-card,
+          :host(.mode-hybrid.drawer-form-active) .result-card {
+            left: auto;
+            right: 5px;
+            width: calc(100vw - 26px);
+            max-width: calc(100vw - 26px);
+          }
+
+          .result-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+          }
+
+          .result-main {
+            flex: 1 1 auto;
           }
 
           .result-card.hidden {
-            transform: translateY(100%);
+            transform: translateY(120%);
           }
 
           .result-price {
-            font-size: 36px;
+            font-size: 19px;
+            margin-bottom: 1px;
           }
 
           .result-details {
-            font-size: 13px;
+            font-size: 10px;
           }
 
           .result-note {
-            font-size: 11px;
+            display: none;
           }
 
           .result-option-tag {
-            font-size: 11px;
-            padding: 3px 10px;
+            font-size: 9px;
+            padding: 1px 7px;
+            margin: 2px 3px 0 0;
+          }
+
+          .result-options {
+            margin-top: 2px;
+            max-height: none;
+            overflow: visible;
+          }
+
+          .result-cta {
+            font-size: 13px;
+            line-height: 1.1;
+            padding: 8px 16px!important;
+            margin-top: 3px;
+            margin-right: 17px;
+            border-radius: 8px;
+            min-height: 26px;
+            width: auto;
+            min-width: 110px;
+            white-space: nowrap;
+            flex-shrink: 0;
+          }
+
+          #calculatorForm {
+            padding-bottom: 98px;
           }
         }
 
@@ -649,23 +1644,60 @@ class MedicalCalculator extends HTMLElement {
         }
       </style>
 
+      <div class="launcher-tooltip" id="launcherTooltip" role="status" aria-live="polite">Рассчитайте точную стоимость поездки</div>
+      <button type="button" class="launcher" id="launcherBtn" aria-label="Рассчитать стоимость">
+        <svg class="launcher-icon" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="8" y="4" width="48" height="56" rx="12" stroke="currentColor" stroke-width="4"/>
+          <rect x="18" y="15" width="28" height="8" rx="4" fill="currentColor"/>
+          <circle cx="21" cy="33" r="3" fill="currentColor"/>
+          <circle cx="31" cy="33" r="3" fill="currentColor"/>
+          <circle cx="41" cy="33" r="3" fill="currentColor"/>
+          <circle cx="21" cy="44" r="3" fill="currentColor"/>
+          <circle cx="31" cy="44" r="3" fill="currentColor"/>
+          <rect x="37" y="40" width="12" height="8" rx="4" fill="currentColor"/>
+        </svg>
+        <span class="launcher-text">Рассчитать стоимость</span>
+      </button>
+
+      <div class="drawer-overlay" id="drawerOverlay"></div>
+      <aside class="drawer" id="launcherDrawer" aria-hidden="true" aria-label="Панель быстрого расчёта">
+        <div class="drawer-head">
+          <div class="drawer-title">Быстрый расчёт</div>
+          <button type="button" class="drawer-close" id="drawerCloseBtn" aria-label="Закрыть">×</button>
+        </div>
+        <div class="drawer-body">
+          <p class="drawer-text">Откройте полный калькулятор на странице и получите точную стоимость с учётом всех параметров поездки.</p>
+          <div class="drawer-actions">
+            <button type="button" class="btn btn-primary" id="drawerGoToFormBtn">Перейти к форме</button>
+            <button type="button" class="btn" id="drawerHideBtn">Скрыть</button>
+          </div>
+        </div>
+      </aside>
+
       <div class="calculator">
-        <h1 class="calculator-title">Медицинский калькулятор</h1>
-        <p class="calculator-subtitle">Рассчитайте стоимость перевозки</p>
+        <button type="button" class="drawer-form-close" id="drawerFormCloseBtn" aria-label="Закрыть">×</button>
+        <h1 class="calculator-title">Калькулятор перевозки</h1>
+        <p class="calculator-subtitle">Рассчитайте стоимость поездки</p>
 
         <div class="calculator-inner">
           <div id="resultCard" class="result-card hidden">
-            <div class="result-price" id="resultPrice">0 ₽</div>
-            <div class="result-details" id="resultDetails"></div>
-            <div class="result-note" id="resultNote">* без учёта платных дорог и выбранных опций. Не является публичной офертой.</div>
+            <div class="result-top">
+              <div class="result-main">
+                <div class="result-price" id="resultPrice">0 ₽</div>
+                <div class="result-details" id="resultDetails"></div>
+                <div class="result-note" id="resultNote">* без учёта платных дорог и выбранных опций. Не является публичной офертой.</div>
+              </div>
+              <button type="button" class="btn btn-primary result-cta" id="resultSubmitCta">Оставить заявку</button>
+            </div>
             <div class="result-options" id="resultOptions"></div>
           </div>
 
           <form id="calculatorForm" autocomplete="off">
-          <input type="text" name="fake_user" style="display:none;" tabindex="-1" aria-hidden="true" />
-          <input type="password" name="fake_pass" style="display:none;" tabindex="-1" aria-hidden="true" />
+          <input type="text" name="fake_user" style="display:none;" tabindex="-1" aria-hidden="true" autocomplete="username" />
+          <input type="password" name="fake_pass" style="display:none;" tabindex="-1" aria-hidden="true" autocomplete="current-password" />
           <div class="form-group">
             <label class="form-label required" for="fromAddress">Откуда забрать</label>
+            <div class="address-echo" id="fromAddressEcho"></div>
             <div class="field-hint" id="fromAddressHint"></div>
             <div class="suggestions-container">
               <div class="input-wrapper">
@@ -686,6 +1718,7 @@ class MedicalCalculator extends HTMLElement {
 
           <div class="form-group">
             <label class="form-label required" for="toAddress">Куда доставить</label>
+            <div class="address-echo" id="toAddressEcho"></div>
             <div class="field-hint" id="toAddressHint"></div>
             <div class="suggestions-container">
               <div class="input-wrapper">
@@ -802,6 +1835,20 @@ class MedicalCalculator extends HTMLElement {
               <option value="2">2 человека</option>
               <option value="0">Без сопровождения</option>
             </select>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="tripDate">Дата поездки</label>
+            <div class="input-wrapper">
+              <input
+                type="date"
+                id="tripDate"
+                name="trip_date"
+                class="form-input"
+                min="${todayIso}"
+              />
+            </div>
+            <div class="field-error" id="tripDateError"></div>
           </div>
 
           <div class="form-group">
@@ -926,7 +1973,7 @@ class MedicalCalculator extends HTMLElement {
           price: this._lastPrice,
           distanceData: this._lastDistanceData || {}
         }));
-      } catch (_) {}
+      } catch {}
     }
     const state = {
       fromAddress: sr.getElementById('fromAddress')?.value || '',
@@ -940,6 +1987,7 @@ class MedicalCalculator extends HTMLElement {
       weight:      sr.getElementById('weight')?.value || '',
       diagnosis:   sr.getElementById('diagnosis')?.value || '',
       diagnosisCustom: sr.getElementById('diagnosisCustom')?.value || '',
+      tripDate:    sr.getElementById('tripDate')?.value || '',
       comment:     sr.getElementById('comment')?.value || '',
       floorDescent: sr.getElementById('floorDescent')?.value || '0',
       floorAscent:  sr.getElementById('floorAscent')?.value || '0',
@@ -948,12 +1996,12 @@ class MedicalCalculator extends HTMLElement {
       medEscort:    sr.getElementById('medEscort')?.checked || false,
       roundTrip:    sr.getElementById('roundTrip')?.checked || false,
     };
-    try { localStorage.setItem('medcalc_form', JSON.stringify(state)); } catch (_) {}
+    try { localStorage.setItem('medcalc_form', JSON.stringify(state)); } catch {}
   }
 
   restoreFormState() {
     let state;
-    try { state = JSON.parse(localStorage.getItem('medcalc_form') || 'null'); } catch (_) {}
+    try { state = JSON.parse(localStorage.getItem('medcalc_form') || 'null'); } catch {}
     if (!state) return;
     const sr = this.shadowRoot;
     const set = (id, val) => { const el = sr.getElementById(id); if (el) el.value = val; };
@@ -976,6 +2024,7 @@ class MedicalCalculator extends HTMLElement {
     set('weight', state.weight);
     set('diagnosis', state.diagnosis);
     set('diagnosisCustom', state.diagnosisCustom);
+    set('tripDate', state.tripDate);
     set('comment', state.comment);
     set('floorDescent', state.floorDescent);
     set('floorAscent', state.floorAscent);
@@ -1004,7 +2053,7 @@ class MedicalCalculator extends HTMLElement {
     // Восстанавливаем блок цены если был рассчитан
     try {
       const savedPrice = JSON.parse(localStorage.getItem('medcalc_price') || 'null');
-      if (savedPrice && savedPrice.price) {
+      if (savedPrice && savedPrice.price && this.hasMinimumResultInputsValid()) {
         this._lastPrice = savedPrice.price;
         this._lastDistanceData = savedPrice.distanceData || {};
         setTimeout(() => this.showResult(savedPrice.price, savedPrice.distanceData || {}), 100);
@@ -1025,15 +2074,22 @@ class MedicalCalculator extends HTMLElement {
     // Подсказки адресов
     this.setupAddressSuggestions(fromAddress, 'fromSuggestions');
     this.setupAddressSuggestions(toAddress, 'toSuggestions');
+    this.setupAddressOverflowAssist(fromAddress, 'fromAddressEcho');
+    this.setupAddressOverflowAssist(toAddress, 'toAddressEcho');
+    this.initFrontendCustomSelects();
 
     // Крестики очистки
     this.setupClearButton('clearFromAddress', fromAddress, () => {
-      fromAddress.dataset.lat = '';
-      fromAddress.dataset.lon = '';
+      this.resetAddressInputState(fromAddress);
+      const fromSuggestions = this.shadowRoot.getElementById('fromSuggestions');
+      if (fromSuggestions) fromSuggestions.classList.add('hidden');
+      this.clearResult();
     });
     this.setupClearButton('clearToAddress', toAddress, () => {
-      toAddress.dataset.lat = '';
-      toAddress.dataset.lon = '';
+      this.resetAddressInputState(toAddress);
+      const toSuggestions = this.shadowRoot.getElementById('toSuggestions');
+      if (toSuggestions) toSuggestions.classList.add('hidden');
+      this.clearResult();
     });
     this.setupClearButton('clearPhone', phone, () => { phone.value = '+7 ('; });
     this.setupClearButton('clearEmail', email);
@@ -1094,7 +2150,9 @@ class MedicalCalculator extends HTMLElement {
      this.shadowRoot.getElementById('floorDescent'),
      this.shadowRoot.getElementById('floorAscent'),
      this.shadowRoot.getElementById('needOxygen'),
-     this.shadowRoot.getElementById('escortCount')].forEach(el => {
+     this.shadowRoot.getElementById('escortCount'),
+     this.shadowRoot.getElementById('tripDate')].forEach(el => {
+      if (!el) return;
       el.addEventListener('change', () => { this.autoCalculate(); this.saveFormState(); });
     });
 
@@ -1104,6 +2162,12 @@ class MedicalCalculator extends HTMLElement {
      this.shadowRoot.getElementById('diagnosisCustom')].forEach(el => {
       if (el) el.addEventListener('input', () => this.saveFormState());
     });
+    [fromAddress, toAddress, weight].forEach(el => {
+      if (!el) return;
+      el.addEventListener('input', () => {
+        if (!this.hasMinimumResultInputsValid()) this.clearResult();
+      });
+    });
     this.shadowRoot.getElementById('diagnosis').addEventListener('change', () => this.saveFormState());
     this.shadowRoot.getElementById('medEscort').addEventListener('change', () => this.saveFormState());
     this.shadowRoot.getElementById('roundTrip').addEventListener('change', () => this.saveFormState());
@@ -1112,6 +2176,213 @@ class MedicalCalculator extends HTMLElement {
     this.shadowRoot.getElementById('submitBtn').addEventListener('click', () => {
       this.submitOrder();
     });
+
+    this.initResultCtaObserver();
+    this.initLauncherExperience();
+  }
+
+  initLauncherExperience() {
+    const launcherBtn = this.shadowRoot.getElementById('launcherBtn');
+    const tooltip = this.shadowRoot.getElementById('launcherTooltip');
+    const drawer = this.shadowRoot.getElementById('launcherDrawer');
+    const overlay = this.shadowRoot.getElementById('drawerOverlay');
+    const drawerCloseBtn = this.shadowRoot.getElementById('drawerCloseBtn');
+    const drawerGoToFormBtn = this.shadowRoot.getElementById('drawerGoToFormBtn');
+    const drawerHideBtn = this.shadowRoot.getElementById('drawerHideBtn');
+    const pageCalculator = this.shadowRoot.querySelector('.calculator');
+    const drawerFormCloseBtn = this.shadowRoot.getElementById('drawerFormCloseBtn');
+    if (!launcherBtn || !tooltip || !drawer || !overlay || !drawerCloseBtn || !drawerGoToFormBtn || !drawerHideBtn || !pageCalculator || !drawerFormCloseBtn) return;
+
+    this.applyWidgetDisplayMode();
+    this.updateDrawerResultFollowScroll();
+
+    if (!this._onCalculatorScroll) {
+      this._onCalculatorScroll = () => this.updateDrawerResultFollowScroll();
+      pageCalculator.addEventListener('scroll', this._onCalculatorScroll, { passive: true });
+    }
+
+    const focusMainForm = () => {
+      const fromAddress = this.shadowRoot.getElementById('fromAddress');
+      const topTarget = this.shadowRoot.querySelector('.calculator');
+      if (topTarget) topTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setTimeout(() => fromAddress && fromAddress.focus(), 260);
+    };
+
+    const openDrawer = () => {
+      this.hideLauncherHint();
+      if (this.widgetDisplayMode === 'drawer_only' || this.widgetDisplayMode === 'hybrid') {
+        this.classList.add('drawer-form-active');
+        pageCalculator.classList.add('open');
+      } else {
+        drawer.classList.add('open');
+      }
+      overlay.classList.add('open');
+      drawer.setAttribute('aria-hidden', this.widgetDisplayMode === 'drawer_only' ? 'true' : 'false');
+      this.syncResultCardVisibilityForDrawerMode();
+      try { sessionStorage.setItem('medcalc_hint_interacted', '1'); } catch {}
+    };
+
+    const closeDrawer = () => {
+      drawer.classList.remove('open');
+      this.classList.remove('drawer-form-active');
+      pageCalculator.classList.remove('open');
+      overlay.classList.remove('open');
+      drawer.setAttribute('aria-hidden', 'true');
+      this.syncResultCardVisibilityForDrawerMode();
+    };
+
+    launcherBtn.addEventListener('click', () => {
+      openDrawer();
+    });
+
+    drawerCloseBtn.addEventListener('click', closeDrawer);
+    overlay.addEventListener('click', closeDrawer);
+    drawerHideBtn.addEventListener('click', closeDrawer);
+    drawerFormCloseBtn.addEventListener('click', closeDrawer);
+    drawerGoToFormBtn.addEventListener('click', () => {
+      closeDrawer();
+      focusMainForm();
+    });
+
+    this._onDrawerEsc = (event) => {
+      if (event.key === 'Escape') closeDrawer();
+    };
+    document.addEventListener('keydown', this._onDrawerEsc);
+
+    launcherBtn.addEventListener('mouseenter', () => this.showLauncherHint('hover', 2500));
+    launcherBtn.addEventListener('mouseleave', () => this.hideLauncherHint());
+
+    let shouldShowTimedHint = true;
+    try {
+      const lastDismissed = Number(localStorage.getItem('medcalc_hint_dismissed_at') || '0');
+      shouldShowTimedHint = Date.now() - lastDismissed > 24 * 60 * 60 * 1000;
+    } catch {}
+
+    if (shouldShowTimedHint) {
+      this._launcherHintTimer = setTimeout(() => {
+        this.showLauncherHint('timer', 5000);
+      }, 10000);
+    }
+
+    this._onExternalFocusIn = (event) => {
+      const target = event.target;
+      if (!target) return;
+      if (this.contains(target) || this.shadowRoot.contains(target)) return;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) return;
+
+      const attrs = `${target.name || ''} ${target.id || ''} ${target.placeholder || ''}`.toLowerCase();
+      const looksLikeRouteForm = /(from|to|address|адрес|куда|откуда|phone|телефон|contact)/.test(attrs);
+      if (!looksLikeRouteForm) return;
+
+      let interacted = false;
+      try { interacted = sessionStorage.getItem('medcalc_hint_interacted') === '1'; } catch {}
+      if (interacted) return;
+
+      this.showLauncherHint('form_focus', 5000);
+      try { sessionStorage.setItem('medcalc_hint_interacted', '1'); } catch {}
+    };
+
+    document.addEventListener('focusin', this._onExternalFocusIn, true);
+  }
+
+  showLauncherHint(reason, autoHideMs) {
+    const tooltip = this.shadowRoot.getElementById('launcherTooltip');
+    if (!tooltip) return;
+    tooltip.textContent = this.getLauncherHintText();
+    tooltip.dataset.reason = reason || '';
+    tooltip.classList.add('show');
+
+    if (this._launcherHintHideTimer) clearTimeout(this._launcherHintHideTimer);
+    if (autoHideMs) {
+      this._launcherHintHideTimer = setTimeout(() => this.hideLauncherHint(), autoHideMs);
+    }
+  }
+
+  hideLauncherHint() {
+    const tooltip = this.shadowRoot.getElementById('launcherTooltip');
+    if (!tooltip) return;
+    tooltip.classList.remove('show');
+    try { localStorage.setItem('medcalc_hint_dismissed_at', String(Date.now())); } catch {}
+  }
+
+  getLauncherHintText() {
+    const loyaltyEnabled = !!(this.pricing && this.pricing.bonus && this.pricing.bonus.enabled);
+    if (loyaltyEnabled) {
+      return 'Рассчитайте точную стоимость поездки и получите бонусы на следующие поездки';
+    }
+    return 'Рассчитайте точную стоимость поездки';
+  }
+
+  applyWidgetDisplayMode() {
+    const host = this;
+    const mode = ['page_only', 'drawer_only', 'hybrid'].includes(this.widgetDisplayMode)
+      ? this.widgetDisplayMode
+      : 'hybrid';
+    this.widgetDisplayMode = mode;
+
+    host.classList.remove('mode-page_only', 'mode-drawer_only', 'mode-hybrid');
+    host.classList.add(`mode-${mode}`);
+
+    const overlay = this.shadowRoot.getElementById('drawerOverlay');
+    const drawer = this.shadowRoot.getElementById('launcherDrawer');
+    const pageCalculator = this.shadowRoot.querySelector('.calculator');
+    if (overlay) overlay.classList.remove('open');
+    if (drawer) {
+      drawer.classList.remove('open');
+      drawer.setAttribute('aria-hidden', 'true');
+    }
+    host.classList.remove('drawer-form-active');
+    if (pageCalculator) pageCalculator.classList.remove('open');
+  }
+
+  applyCalculatorFieldVisibility() {
+    const fields = this.calculatorFields || {};
+    const cfg = [
+      { key: 'medical_escort', id: 'medEscort' },
+      { key: 'need_oxygen', id: 'needOxygen' },
+      { key: 'email', id: 'email' },
+      { key: 'comment', id: 'comment' },
+      { key: 'diagnosis', id: 'diagnosis' },
+      { key: 'escort_count', id: 'escortCount' },
+      { key: 'round_trip', id: 'roundTrip' },
+      { key: 'trip_date', id: 'tripDate' },
+    ];
+
+    cfg.forEach(({ key, id }) => {
+      const el = this.shadowRoot.getElementById(id);
+      if (!el) return;
+      const group = el.closest('.form-group');
+      if (!group) return;
+      const visible = fields[key] !== false;
+      group.style.display = visible ? '' : 'none';
+      if (!visible) {
+        if (el.type === 'checkbox') el.checked = false;
+        else el.value = '';
+      }
+    });
+  }
+
+  initResultCtaObserver() {
+    const submitBtn = this.shadowRoot.getElementById('submitBtn');
+    const cta = this.shadowRoot.getElementById('resultSubmitCta');
+    const resultCard = this.shadowRoot.getElementById('resultCard');
+    if (!submitBtn || !cta || !resultCard) return;
+
+    cta.addEventListener('click', () => {
+      submitBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => submitBtn.focus(), 300);
+    });
+
+    if (this._submitObserver) this._submitObserver.disconnect();
+    this._submitObserver = new IntersectionObserver((entries) => {
+      const visible = entries[0] && entries[0].isIntersecting;
+      cta.classList.toggle('show', !visible);
+      resultCard.classList.toggle('submit-visible', !!visible);
+    }, {
+      root: null,
+      threshold: 0.15
+    });
+    this._submitObserver.observe(submitBtn);
   }
 
   setupClearButton(btnId, input, onClear) {
@@ -1339,6 +2610,8 @@ class MedicalCalculator extends HTMLElement {
   setupAddressSuggestions(input, suggestionsId) {
     const suggestionsDiv = this.shadowRoot.getElementById(suggestionsId);
     let timeout;
+    let activeController = null;
+    let lastAppliedSeq = 0;
     
     // Состояние каскадного ввода
     if (!input.addressState) {
@@ -1402,23 +2675,45 @@ class MedicalCalculator extends HTMLElement {
             requestBody.to_bound = { value: 'settlement' };
           }
 
+          const cacheKey = this.getSuggestionsCacheKey(input, requestBody);
+          const cachedSuggestions = this.getCachedSuggestions(cacheKey);
+          if (cachedSuggestions) {
+            this.renderSuggestions(cachedSuggestions, suggestionsDiv, input);
+            return;
+          }
+
+          if (activeController) {
+            activeController.abort();
+          }
+          activeController = new AbortController();
+          const reqSeq = ++this.suggestionsReqSeq;
+
           const response = await fetch(`${this.apiUrl}/api/dadata/suggest`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'X-API-Key': this.apiKey
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            signal: activeController.signal
           });
 
           const data = await response.json();
 
+          if (reqSeq < lastAppliedSeq) {
+            return;
+          }
+          lastAppliedSeq = reqSeq;
+
           if (data.success && data.suggestions.length > 0) {
-            this.renderSuggestions(data.suggestions, suggestionsDiv, input);
+            const sorted = this.rankSuggestions(data.suggestions, query, input.addressState);
+            this.setCachedSuggestions(cacheKey, sorted);
+            this.renderSuggestions(sorted, suggestionsDiv, input);
           } else {
             suggestionsDiv.classList.add('hidden');
           }
         } catch (error) {
+          if (error && error.name === 'AbortError') return;
           console.error('Suggestions error:', error);
         }
       }, 200);
@@ -1434,10 +2729,19 @@ class MedicalCalculator extends HTMLElement {
   renderSuggestions(suggestions, container, input) {
     console.log('🔍 renderSuggestions called with', suggestions.length, 'suggestions');
     console.log('📍 Current addressState:', input.addressState);
-    
+
     const query = input.value.trim();
-    
-    container.innerHTML = suggestions.map(s => {
+    const step = this.getAddressSuggestionStep(input);
+    const filteredSuggestions = (Array.isArray(suggestions) ? suggestions : []).filter((s) =>
+      this.shouldKeepSuggestionForStep(s, step)
+    );
+
+    if (filteredSuggestions.length === 0) {
+      container.classList.add('hidden');
+      return;
+    }
+
+    container.innerHTML = filteredSuggestions.map(s => {
       const displayValue = s.value;
       const region = s.data?.region_with_type || '';
       const fiasLevel = s.data?.fias_level || '';
@@ -1461,19 +2765,32 @@ class MedicalCalculator extends HTMLElement {
       <div class="suggestion-item" 
            data-value="${s.value}" 
            data-unrestricted="${s.unrestricted_value || s.value}"
+           data-fias-id="${s.data?.fias_id || ''}"
+           data-region-fias="${s.data?.region_fias_id || ''}"
            data-lat="${s.data?.geo_lat || ''}" 
            data-lon="${s.data?.geo_lon || ''}"
            data-fias-level="${fiasLevel}"
            data-city="${s.data?.city || ''}"
+           data-city-with-type="${s.data?.city_with_type || ''}"
            data-settlement="${s.data?.settlement || ''}"
+           data-settlement-with-type="${s.data?.settlement_with_type || ''}"
+           data-area-with-type="${s.data?.area_with_type || ''}"
+           data-city-district-with-type="${s.data?.city_district_with_type || ''}"
            data-street="${s.data?.street || ''}"
+           data-street-with-type="${s.data?.street_with_type || ''}"
            data-house="${s.data?.house || ''}"
            data-city-fias="${s.data?.city_fias_id || ''}"
            data-settlement-fias="${s.data?.settlement_fias_id || ''}"
            data-street-fias="${s.data?.street_fias_id || ''}">
         <div class="suggestion-value">${highlightedValue}</div>
-        ${region && (fiasLevel === 'city' || fiasLevel === 'settlement') ? `<div class="suggestion-data">${region}</div>` : ''}
-        ${s.data?.geo_lat ? `<div class="suggestion-data">📍 ${s.data.geo_lat}, ${s.data.geo_lon}</div>` : ''}
+        ${(() => {
+          if (!['1', '3', '4', '5', '6'].includes(fiasLevel)) return '';
+          const area = s.data?.area_with_type || '';
+          const district = s.data?.city_district_with_type || '';
+          const details = [district, area, region].filter(Boolean).join(', ');
+          return details ? `<div class="suggestion-data">${details}</div>` : '';
+        })()}
+        ${s.data?.geo_lat ? `<div class="suggestion-data"><svg class="inline-ico" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 22s7-5.86 7-12a7 7 0 1 0-14 0c0 6.14 7 12 7 12z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.5" stroke="currentColor" stroke-width="1.8"/></svg>${s.data.geo_lat}, ${s.data.geo_lon}</div>` : ''}
       </div>
     `;
     }).join('');
@@ -1481,8 +2798,11 @@ class MedicalCalculator extends HTMLElement {
     container.classList.remove('hidden');
 
     container.querySelectorAll('.suggestion-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const fiasLevel = item.dataset.fiasLevel;
+      item.addEventListener('click', async () => {
+        const fiasLevel = (item.dataset.fiasLevel || '').trim();
+        const fiasLevelNum = parseInt(fiasLevel, 10);
+        const isStreetLevel = fiasLevel === '7' || fiasLevelNum === 7;
+        const isHouseLevel = fiasLevel === '8' || fiasLevelNum === 8 || (!!item.dataset.house && !!input.addressState?.streetFiasId);
         console.log('🖱️ Clicked suggestion:', {
           fiasLevel,
           city: item.dataset.city,
@@ -1495,49 +2815,52 @@ class MedicalCalculator extends HTMLElement {
         });
         
         // fias_level: 0-2=регион/район, 3-4=город, 5-6=населённый пункт, 7=улица, 8=дом
-        if (fiasLevel === '3' || fiasLevel === '4' || fiasLevel === '5' || fiasLevel === '6') {
-          // Выбран город или населённый пункт
-          const cityName = item.dataset.city || item.dataset.settlement;
-          console.log('🏙️ Selected city/settlement:', cityName, 'fiasLevel:', fiasLevel);
-          input.addressState.cityName = cityName;
-          input.addressState.cityFiasId = item.dataset.cityFias;
-          input.addressState.settlementFiasId = item.dataset.settlementFias;
+        // Особый случай: федеральные города (например, Москва) могут приходить как fias_level=1.
+        const isLocalityLevel = [1, 3, 4, 5, 6].includes(fiasLevelNum);
+        const hasLocalityData = !!(item.dataset.city || item.dataset.settlement || item.dataset.cityWithType || item.dataset.settlementWithType);
+        if (isLocalityLevel && hasLocalityData) {
+          // Для fias 5-6 приоритет settlement, чтобы не подставлялся уровень выше.
+          const isSettlement = fiasLevelNum === 5 || fiasLevelNum === 6;
+          const localityCore = isSettlement
+            ? (item.dataset.settlementWithType || item.dataset.settlement || item.dataset.cityWithType || item.dataset.city)
+            : (item.dataset.cityWithType || item.dataset.city || item.dataset.settlementWithType || item.dataset.settlement);
+          const localityName = this.buildLocalityLabel(item, localityCore);
+
+          console.log('🏙️ Selected city/settlement:', localityName, 'fiasLevel:', fiasLevel);
+          input.addressState.cityName = localityName;
+          input.addressState.cityFiasId = item.dataset.cityFias || item.dataset.fiasId || item.dataset.regionFias || '';
+          input.addressState.settlementFiasId = item.dataset.settlementFias || '';
+          input.addressState.streetFiasId = null;
+          input.addressState.streetName = '';
+          input.addressState.houseName = '';
           console.log('💾 Updated addressState:', input.addressState);
           
-          input.value = cityName + ', ';
+          input.value = localityName + ', ';
           input.placeholder = 'Введите улицу';
           input.classList.remove('error');
           input.classList.add('hint');
+          this.updateAddressEchoForInput(input, this.shadowRoot.getElementById(`${input.id}Echo`));
           this.updateAddressHint(input);
           container.classList.add('hidden');
-          setTimeout(() => input.focus(), 10);
-          
-        } else if (fiasLevel === '7') {
-          // Выбрана улица
-          const streetName = item.dataset.street;
-          console.log('🛣️ Selected street:', streetName);
-          input.addressState.streetName = streetName;
-          input.addressState.streetFiasId = item.dataset.streetFias;
-          console.log('💾 Updated addressState:', input.addressState);
-          
-          input.value = input.addressState.cityName + ', ' + streetName + ', ';
-          input.placeholder = 'Введите номер дома';
-          input.classList.remove('error');
-          input.classList.add('hint');
-          this.updateAddressHint(input);
-          container.classList.add('hidden');
-          
-          // Автоматически показываем варианты домов
           setTimeout(() => {
             input.focus();
-            // Триггерим поиск домов
+            // Автоматически запрашиваем улицы для выбранного НП/города
             const event = new Event('input', { bubbles: true });
             input.dispatchEvent(event);
           }, 100);
           
-        } else if (fiasLevel === '8') {
+        } else if (isHouseLevel) {
           // Выбран дом
-          let house = item.dataset.house;
+          const confirmed = await this.confirmHouseSelection(item.dataset.unrestricted || item.dataset.value || '');
+          if (confirmed && confirmed.valid === false) {
+            this.showError(input.id + 'Error', 'Выберите адрес до дома из подсказок');
+            input.classList.add('error');
+            container.classList.add('hidden');
+            return;
+          }
+
+          const selectedData = confirmed?.valid ? (confirmed.suggestion?.data || {}) : null;
+          let house = selectedData?.house || item.dataset.house;
           console.log('🏠 Selected house:', house);
           // Нормализуем номер дома: 1, д1, д 1 → д 1
           if (house && !/^д /.test(house) && !/^дом /.test(house)) {
@@ -1553,16 +2876,20 @@ class MedicalCalculator extends HTMLElement {
           
           const finalAddress = parts.join(', ');
           console.log('✅ Final address:', finalAddress);
-          console.log('📦 Full address for admin:', item.dataset.unrestricted);
+          const fullAddress = confirmed?.valid
+            ? (confirmed.suggestion?.unrestricted_value || confirmed.suggestion?.value || item.dataset.unrestricted || item.dataset.value)
+            : (item.dataset.unrestricted || item.dataset.value);
+          console.log('📦 Full address for admin:', fullAddress);
           
           input.value = finalAddress;
           input.placeholder = 'Начните вводить адрес...';
           
           // Сохраняем полный адрес для админки
-          input.dataset.fullAddress = item.dataset.unrestricted || item.dataset.value;
-          input.dataset.lat = item.dataset.lat;
-          input.dataset.lon = item.dataset.lon;
+          input.dataset.fullAddress = fullAddress;
+          input.dataset.lat = selectedData?.geo_lat || item.dataset.lat;
+          input.dataset.lon = selectedData?.geo_lon || item.dataset.lon;
           input.classList.remove('hint');
+          this.updateAddressEchoForInput(input, this.shadowRoot.getElementById(`${input.id}Echo`));
           this.hideAddressHint(input);
           console.log('💾 Saved to dataset:', {
             fullAddress: input.dataset.fullAddress,
@@ -1586,6 +2913,30 @@ class MedicalCalculator extends HTMLElement {
           this.hideError(input.id + 'Error');
           console.log('🚀 Calling autoCalculate()');
           this.autoCalculate();
+        } else if (isStreetLevel) {
+          // Выбрана улица
+          const streetName = item.dataset.streetWithType || item.dataset.street;
+          console.log('🛣️ Selected street:', streetName);
+          input.addressState.streetName = streetName;
+          input.addressState.streetFiasId = item.dataset.streetFias;
+          console.log('💾 Updated addressState:', input.addressState);
+          
+          input.value = input.addressState.cityName + ', ' + streetName + ', ';
+          input.placeholder = 'Введите номер дома';
+          input.classList.remove('error');
+          input.classList.add('hint');
+          this.updateAddressEchoForInput(input, this.shadowRoot.getElementById(`${input.id}Echo`));
+          this.updateAddressHint(input);
+          container.classList.add('hidden');
+          
+          // Автоматически показываем варианты домов
+          setTimeout(() => {
+            input.focus();
+            // Триггерим поиск домов
+            const event = new Event('input', { bubbles: true });
+            input.dispatchEvent(event);
+          }, 100);
+          
         } else {
           console.log('⚠️ Unknown fias_level:', fiasLevel);
           container.classList.add('hidden');
@@ -1599,7 +2950,8 @@ class MedicalCalculator extends HTMLElement {
     const toAddress = this.shadowRoot.getElementById('toAddress');
     const weight = this.shadowRoot.getElementById('weight');
 
-    if (!fromAddress.dataset.lat || !toAddress.dataset.lat || !weight.value) {
+    if (!fromAddress.dataset.lat || !fromAddress.dataset.lon || !toAddress.dataset.lat || !toAddress.dataset.lon || !weight.value) {
+      this.clearResult();
       return;
     }
 
@@ -1633,6 +2985,221 @@ class MedicalCalculator extends HTMLElement {
     } catch (error) {
       console.error('Calculate error:', error);
     }
+  }
+
+  ensureUserGeo() {
+    if (this.userGeoRequested) return;
+    this.userGeoRequested = true;
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        this.userGeo = {
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude
+        };
+      },
+      () => {},
+      { enableHighAccuracy: false, timeout: 3000, maximumAge: 10 * 60 * 1000 }
+    );
+  }
+
+  rankSuggestions(suggestions, query, state) {
+    if (!Array.isArray(suggestions) || suggestions.length < 2) return suggestions || [];
+    const q = String(query || '').trim().toLowerCase();
+    const inStreetStep = !!state?.streetFiasId;
+    return [...suggestions]
+      .map((s, idx) => ({ s, idx, score: this.getSuggestionScore(s, q, inStreetStep) }))
+      .sort((a, b) => b.score - a.score || a.idx - b.idx)
+      .map(x => x.s);
+  }
+
+  getAddressSuggestionStep(input) {
+    const state = input?.addressState || {};
+    if (state.streetFiasId) return 'house';
+    if (state.settlementFiasId || state.cityFiasId) return 'street';
+    return 'locality';
+  }
+
+  shouldKeepSuggestionForStep(suggestion, step) {
+    const d = suggestion?.data || {};
+    const level = parseInt(String(d.fias_level || '').trim(), 10);
+
+    if (step === 'locality') {
+      const isLocalityLevel = [1, 3, 4, 5, 6].includes(level);
+      const hasLocalityData = !!(d.city || d.settlement || d.city_with_type || d.settlement_with_type);
+      return isLocalityLevel && hasLocalityData;
+    }
+
+    if (step === 'street') {
+      if (level !== 7) return false;
+      if (!d.street && !d.street_with_type) return false;
+      if (!d.street_fias_id) return false;
+      return !this.isUnsupportedStreetEntity(d.street_with_type || d.street || suggestion?.value || '');
+    }
+
+    if (step === 'house') {
+      const hasHouse = !!d.house;
+      return level === 8 || hasHouse;
+    }
+
+    return true;
+  }
+
+  isUnsupportedStreetEntity(streetLabel) {
+    const value = String(streetLabel || '').trim().toLowerCase();
+    if (!value) return false;
+    const blockedMarkers = ['тер ', 'тер.', 'территория', 'гпк', 'снт', 'днп', 'тсн'];
+    return blockedMarkers.some(marker => value.includes(marker));
+  }
+
+  async confirmHouseSelection(unrestrictedValue) {
+    const query = String(unrestrictedValue || '').trim();
+    if (!query) return null;
+
+    try {
+      const response = await fetch(`${this.apiUrl}/api/dadata/suggest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.apiKey
+        },
+        body: JSON.stringify({
+          query,
+          count: 1,
+          restrict_value: true
+        })
+      });
+
+      if (!response.ok) return null;
+      const data = await response.json();
+      const suggestion = Array.isArray(data?.suggestions) ? data.suggestions[0] : null;
+      if (!suggestion) {
+        return { valid: false, reason: 'empty' };
+      }
+
+      const d = suggestion.data || {};
+      const level = parseInt(String(d.fias_level || '').trim(), 10);
+      const hasHouse = !!d.house || level === 8;
+      const hasGeo = !!d.geo_lat && !!d.geo_lon;
+      const streetLabel = d.street_with_type || d.street || suggestion.value || '';
+      if (!hasHouse || !hasGeo || this.isUnsupportedStreetEntity(streetLabel)) {
+        return { valid: false, reason: 'not_house_or_geo' };
+      }
+
+      return { valid: true, suggestion };
+    } catch (error) {
+      console.warn('[ADDRESS][CONFIRM] fallback to clicked suggestion', error?.message || error);
+      return null;
+    }
+  }
+
+  getSuggestionScore(s, query, inStreetStep) {
+    let score = 0;
+    const value = String(s?.value || '').toLowerCase();
+    const words = query.split(/\s+/).filter(Boolean);
+
+    if (query && value.startsWith(query)) score += 120;
+    for (const w of words) {
+      if (w.length < 2) continue;
+      if (value.startsWith(w)) score += 40;
+      else if (value.includes(` ${w}`)) score += 25;
+      else if (value.includes(w)) score += 10;
+    }
+
+    const level = parseInt(String(s?.data?.fias_level || '').trim(), 10);
+    if (inStreetStep) {
+      if (s?.data?.house) score += 200;
+      if (level === 8) score += 150;
+    } else {
+      if ([1, 3, 4, 5, 6].includes(level)) score += 20;
+    }
+
+    if (this.userGeo && [1, 3, 4, 5, 6].includes(level)) {
+      const lat = parseFloat(s?.data?.geo_lat);
+      const lon = parseFloat(s?.data?.geo_lon);
+      if (!Number.isNaN(lat) && !Number.isNaN(lon)) {
+        const km = this.haversineKm(this.userGeo.lat, this.userGeo.lon, lat, lon);
+        if (km < 15) score += 60;
+        else if (km < 40) score += 35;
+        else if (km < 80) score += 15;
+      }
+    }
+
+    return score;
+  }
+
+  haversineKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  resetAddressInputState(input) {
+    if (!input) return;
+    input.addressState = {
+      cityFiasId: null,
+      settlementFiasId: null,
+      streetFiasId: null,
+      cityName: '',
+      streetName: '',
+      houseName: ''
+    };
+    delete input.dataset.lat;
+    delete input.dataset.lon;
+    delete input.dataset.fullAddress;
+    input.classList.remove('hint', 'success', 'error');
+    this.hideAddressHint(input);
+  }
+
+  getSuggestionsCacheKey(input, requestBody) {
+    const state = input.addressState || {};
+    return JSON.stringify({
+      q: String(requestBody.query || '').trim().toLowerCase(),
+      b1: requestBody.from_bound?.value || '',
+      b2: requestBody.to_bound?.value || '',
+      city: state.cityFiasId || '',
+      settlement: state.settlementFiasId || '',
+      street: state.streetFiasId || ''
+    });
+  }
+
+  getCachedSuggestions(cacheKey) {
+    const entry = this.suggestionsCache.get(cacheKey);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > this.suggestionsCacheTtlMs) {
+      this.suggestionsCache.delete(cacheKey);
+      return null;
+    }
+    return entry.value;
+  }
+
+  setCachedSuggestions(cacheKey, suggestions) {
+    this.suggestionsCache.set(cacheKey, { ts: Date.now(), value: suggestions });
+    if (this.suggestionsCache.size > 200) {
+      const oldestKey = this.suggestionsCache.keys().next().value;
+      if (oldestKey) this.suggestionsCache.delete(oldestKey);
+    }
+  }
+
+  buildLocalityLabel(item, localityCore) {
+    const base = String(localityCore || '').trim();
+    if (!base) return '';
+    const district = String(item.dataset.cityDistrictWithType || '').trim();
+    const area = String(item.dataset.areaWithType || '').trim();
+    const extra = district || area;
+    if (!extra) return base;
+
+    const baseNorm = base.toLowerCase();
+    const extraNorm = extra.toLowerCase();
+    if (baseNorm.includes(extraNorm) || extraNorm.includes(baseNorm)) return base;
+
+    return `${base}, ${extra}`;
   }
 
   getActiveOptions() {
@@ -1748,10 +3315,36 @@ class MedicalCalculator extends HTMLElement {
   }
 
   updateResult() {
-    if (!this.calculatedDistance) return;
+    if (!this.calculatedDistance || !this.hasMinimumResultInputsValid()) {
+      this.clearResult();
+      return;
+    }
     const price = this.calculatePrice(this.calculatedDistance.distance);
     this.calculatedPrice = price;
     this.showResult(price, this.calculatedDistance);
+  }
+
+  hasMinimumResultInputsValid() {
+    const fromAddress = this.shadowRoot.getElementById('fromAddress');
+    const toAddress = this.shadowRoot.getElementById('toAddress');
+    const weight = this.shadowRoot.getElementById('weight');
+    return !!(
+      fromAddress?.value?.trim() && fromAddress.dataset.lat && fromAddress.dataset.lon &&
+      toAddress?.value?.trim() && toAddress.dataset.lat && toAddress.dataset.lon &&
+      weight?.value
+    );
+  }
+
+  clearResult() {
+    this.calculatedDistance = null;
+    this.calculatedPrice = null;
+    this._lastPrice = null;
+    this._lastDistanceData = null;
+    try { localStorage.removeItem('medcalc_price'); } catch (_) {}
+    const resultCard = this.shadowRoot.getElementById('resultCard');
+    if (resultCard) resultCard.classList.add('hidden');
+    const resultOptions = this.shadowRoot.getElementById('resultOptions');
+    if (resultOptions) resultOptions.innerHTML = '';
   }
 
   async checkLoyaltyBalance(phone) {
@@ -1759,7 +3352,11 @@ class MedicalCalculator extends HTMLElement {
     const block = this.shadowRoot.getElementById('loyaltyBlock');
     if (!block) return;
     try {
-      const res = await fetch(`${this.apiUrl}/api/loyalty/balance?phone=${encodeURIComponent(phone)}`);
+      const res = await fetch(`${this.apiUrl}/api/loyalty/balance?phone=${encodeURIComponent(phone)}`, {
+        headers: {
+          'X-API-Key': this.apiKey
+        }
+      });
       const data = await res.json();
       this._loyaltyBalance = parseInt(data.bonus_balance) || 0;
       this._loyaltyPercent = this.pricing.bonus.percent || 5;
@@ -1776,6 +3373,9 @@ class MedicalCalculator extends HTMLElement {
     const balance  = this._loyaltyBalance || 0;
     const percent  = this._loyaltyPercent || 5;
     const price    = this.calculatedPrice || 0;
+    const maxUsagePercent = Math.max(0, Math.min(100, parseFloat(this.pricing?.bonus?.max_usage_percent ?? 100) || 100));
+    const maxUsableByBalancePercent = Math.floor(Math.max(0, balance) * maxUsagePercent / 100);
+    const usableBonus = Math.max(0, Math.min(balance, maxUsableByBalancePercent, Math.max(0, price)));
     const willEarn = price > 0 ? Math.round(price * percent / 100) : null;
 
     if (balance > 0) {
@@ -1784,17 +3384,21 @@ class MedicalCalculator extends HTMLElement {
         <div class="lb-title">⭐ У вас ${balance.toLocaleString('ru')} бонусных баллов</div>
         <div class="lb-row">
           <input type="checkbox" class="lb-checkbox" id="useBonus">
-          <label class="lb-label" for="useBonus">Списать <strong>${balance.toLocaleString('ru')} ₽</strong> бонусами</label>
+          <label class="lb-label" for="useBonus">Списать <strong>${usableBonus.toLocaleString('ru')} ₽</strong> бонусами</label>
         </div>
-        ${willEarn ? `<div class="lb-hint">За этот заказ начислится ещё ~${willEarn} баллов</div>` : ''}
+        ${willEarn ? `<div class="lb-hint">После завершения заявки начислится ~${willEarn} баллов</div>` : ''}
       `;
+      const cb = block.querySelector('#useBonus');
+      if (cb && usableBonus <= 0) {
+        cb.disabled = true;
+      }
     } else {
       block.className = 'loyalty-block';
       block.innerHTML = `
         <div class="lb-title">⭐ Программа лояльности</div>
         <div style="color:#374151;font-size:13px">
           ${willEarn
-            ? `За этот заказ вам начислится <strong>~${willEarn} бонусных баллов</strong> (1 балл = 1 ₽)`
+            ? `После завершения заявки вам начислится <strong>~${willEarn} бонусных баллов</strong> (1 балл = 1 ₽)`
             : `Оформите заказ и получайте бонусные баллы — ${percent}% от суммы`}
         </div>
       `;
@@ -1823,6 +3427,14 @@ class MedicalCalculator extends HTMLElement {
     const resultOptions = this.shadowRoot.getElementById('resultOptions');
 
     resultPrice.textContent = `${price.toLocaleString('ru-RU')} ₽`;
+    resultPrice.classList.remove('price-updated');
+    void resultPrice.offsetWidth;
+    resultPrice.classList.add('price-updated');
+    if (this._priceAnimTimer) clearTimeout(this._priceAnimTimer);
+    this._priceAnimTimer = setTimeout(() => {
+      resultPrice.classList.remove('price-updated');
+      this._priceAnimTimer = null;
+    }, 450);
 
     const toAddr   = (this.shadowRoot.getElementById('toAddress')?.value   || '').toLowerCase();
     const fromAddr = (this.shadowRoot.getElementById('fromAddress')?.value || '').toLowerCase();
@@ -1835,6 +3447,7 @@ class MedicalCalculator extends HTMLElement {
       toRateR.city_name === fromRateR.city_name;
 
     let details = '';
+    let providerIconHtml = '';
     if (!hasFixed) {
       // Показываем А→Б (distance_display), полный маршрут скрыт от заказчика
       const displayDist = distanceData.distance_display ?? distanceData.distance;
@@ -1844,9 +3457,11 @@ class MedicalCalculator extends HTMLElement {
         const minutes = distanceData.duration % 60;
         details += ` • Время: ${hours > 0 ? hours + ' ч ' : ''}${minutes} мин`;
       }
-      if (distanceData.provider === 'graphhopper') details += ' 🚗';
+      if (distanceData.provider === 'graphhopper') {
+        providerIconHtml = " <svg class='inline-ico' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg' aria-hidden='true'><path d='M4 14l1.5-4.5A2 2 0 0 1 7.4 8h9.2a2 2 0 0 1 1.9 1.5L20 14' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/><path d='M4 14h16v4a1 1 0 0 1-1 1h-1a2 2 0 0 1-2-2H8a2 2 0 0 1-2 2H5a1 1 0 0 1-1-1v-4z' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/><circle cx='7.5' cy='16.5' r='1' fill='currentColor'/><circle cx='16.5' cy='16.5' r='1' fill='currentColor'/></svg>";
+      }
     }
-    resultDetails.textContent = details;
+    resultDetails.innerHTML = `${details}${providerIconHtml}`;
 
     const activeOptions = this.getActiveOptions();
     const resultNote = this.shadowRoot.getElementById('resultNote');
@@ -1860,13 +3475,14 @@ class MedicalCalculator extends HTMLElement {
     }
 
     resultCard.classList.remove('hidden');
+    this.syncResultCardVisibilityForDrawerMode();
 
     // Обновляем блок лояльности с актуальной суммой начисления
     if (this._loyaltyPhone) this.renderLoyaltyBlock();
   }
 
   resetForm() {
-    const ids = ['fromAddress','toAddress','weight','phone','email','comment'];
+    const ids = ['fromAddress','toAddress','weight','phone','email','comment','tripDate'];
     ids.forEach(id => {
       const el = this.shadowRoot.getElementById(id);
       if (el) {
@@ -1899,7 +3515,9 @@ class MedicalCalculator extends HTMLElement {
     const diagCustomGroup = this.shadowRoot.getElementById('diagnosisCustomGroup');
     if (diagCustomGroup) diagCustomGroup.style.display = 'none';
     const resultCard = this.shadowRoot.getElementById('resultCard');
-    if (resultCard) resultCard.classList.add('hidden');
+    if (resultCard) {
+      resultCard.classList.add('hidden');
+    }
     // Сбрасываем все ошибки
     this.shadowRoot.querySelectorAll('.field-error.show').forEach(el => el.classList.remove('show'));
     this.calculatedDistance = null;
@@ -1926,6 +3544,7 @@ class MedicalCalculator extends HTMLElement {
     const medEscort = this.shadowRoot.getElementById('medEscort');
     const roundTrip = this.shadowRoot.getElementById('roundTrip');
     const personalData = this.shadowRoot.getElementById('personalData');
+    const tripDate = this.shadowRoot.getElementById('tripDate');
 
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="loading"></span> Отправка...';
@@ -1950,11 +3569,19 @@ class MedicalCalculator extends HTMLElement {
           return sel.value;
         })(),
         comment: this.shadowRoot.getElementById('comment').value,
+        trip_datetime: (() => {
+          const tripDate = this.shadowRoot.getElementById('tripDate')?.value || '';
+          return tripDate ? `${tripDate}T00:00:00` : null;
+        })(),
         personal_data: personalData.checked,
         distance: this.calculatedDistance?.distance || 0,
         bonus_used: (() => {
           const cb = this.shadowRoot.getElementById('useBonus');
-          return (cb && cb.checked) ? (this._loyaltyBalance || 0) : 0;
+          const maxUsagePercent = Math.max(0, Math.min(100, parseFloat(this.pricing?.bonus?.max_usage_percent ?? 100) || 100));
+          const balance = this._loyaltyBalance || 0;
+          const maxUsableByBalancePercent = Math.floor(Math.max(0, balance) * maxUsagePercent / 100);
+          const allowedBonus = Math.max(0, Math.min(balance, maxUsableByBalancePercent, Math.max(0, this.calculatedPrice || 0)));
+          return (cb && cb.checked) ? allowedBonus : 0;
         })()
       };
 
@@ -2022,6 +3649,7 @@ class MedicalCalculator extends HTMLElement {
     const phone = this.shadowRoot.getElementById('phone');
     const email = this.shadowRoot.getElementById('email');
     const personalData = this.shadowRoot.getElementById('personalData');
+    const tripDate = this.shadowRoot.getElementById('tripDate');
 
     // Сбрасываем все ошибки перед повторной валидацией
     this.shadowRoot.querySelectorAll('.field-error.show').forEach(el => el.classList.remove('show'));
@@ -2053,6 +3681,19 @@ class MedicalCalculator extends HTMLElement {
     } else {
       this.hideError('toAddressError');
       toAddress.classList.remove('error');
+    }
+
+    const todayIso = (() => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    })();
+    if (tripDate?.value && tripDate.value < todayIso) {
+      this.showError('tripDateError', 'Дата поездки не может быть в прошлом');
+      tripDate.classList.add('error');
+      isValid = false;
+    } else {
+      this.hideError('tripDateError');
+      tripDate.classList.remove('error');
     }
 
     // Вес — обязательный
@@ -2223,18 +3864,7 @@ class MedicalCalculator extends HTMLElement {
     
     // Если поле пустое, сбрасываем всё состояние
     if (!currentValue) {
-      input.addressState = {
-        cityFiasId: null,
-        settlementFiasId: null,
-        streetFiasId: null,
-        cityName: '',
-        streetName: '',
-        houseName: ''
-      };
-      delete input.dataset.lat;
-      delete input.dataset.lon;
-      delete input.dataset.fullAddress;
-      input.classList.remove('hint', 'success');
+      this.resetAddressInputState(input);
       return;
     }
     
@@ -2261,18 +3891,7 @@ class MedicalCalculator extends HTMLElement {
     
     // Если удалили город, сбрасываем всё
     if (state.cityName && !currentValue.includes(state.cityName)) {
-      input.addressState = {
-        cityFiasId: null,
-        settlementFiasId: null,
-        streetFiasId: null,
-        cityName: '',
-        streetName: '',
-        houseName: ''
-      };
-      delete input.dataset.lat;
-      delete input.dataset.lon;
-      delete input.dataset.fullAddress;
-      input.classList.remove('hint', 'success');
+      this.resetAddressInputState(input);
     }
   }
 }

@@ -1,4 +1,4 @@
-// Расчёт стоимости медицинской перевозки
+я// Расчёт стоимости медицинской перевозки
 
 export function calculatePrice({ distance, weight, floor, noElevator, roundTrip, medEscort, bonusUsed, settings }) {
   let price = settings.pricing.base;

@@ -97,12 +97,11 @@
             <h3>Информация о тесте</h3>
             <p>Эта страница используется для тестирования виджета медицинского калькулятора.</p>
             <p><strong>API ключ:</strong> test-api-key-12345</p>
-            <p><strong>URL виджета:</strong> /widget.js</p>
+            <p><strong>URL виджета:</strong> /widget-calculator.js</p>
         </div>
 
-        <div class="widget-container">
-            <h3>Здесь должен появиться виджет калькулятора</h3>
-            <p>Если виджет не отображается, проверьте консоль браузера на наличие ошибок.</p>
+        <div class="widget-container" id="widget-mount">
+            <medical-calculator api-url="http://localhost:3003" api-key="test-api-key-12345"></medical-calculator>
         </div>
 
         <div class="test-form">
@@ -122,7 +121,7 @@
     </div>
 
     <!-- Загрузка виджета -->
-    <script src="/widget.js" data-key="test-api-key-12345"></script>
+    <script src="/widget-calculator.js"></script>
 
     <script>
         // Тестовые функции
@@ -222,9 +221,12 @@
         // Проверка загрузки виджета
         setTimeout(() => {
             const widgetContainer = document.querySelector('.widget-container');
-            if (widgetContainer.querySelector('#medical-calculator-widget')) {
+            if (widgetContainer.querySelector('medical-calculator')) {
                 widgetContainer.style.borderColor = '#4caf50';
-                widgetContainer.innerHTML = '<h3 style="color: #4caf50;">✅ Виджет успешно загружен!</h3>';
+                const ok = document.createElement('h3');
+                ok.style.color = '#4caf50';
+                ok.textContent = '✅ Виджет подключен';
+                widgetContainer.prepend(ok);
             }
         }, 2000);
     </script>

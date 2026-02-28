@@ -252,7 +252,7 @@ function main() {
   const allFiles = findFiles(projectRoot);
   
   // Добавляем основные файлы из корня
-  const rootFiles = ['medical-api-server.cjs', 'widget-build.js', 'beads-api-server.cjs']
+  const rootFiles = ['medical-api-server.cjs', 'widget-build-prod.js', 'beads-api-server.cjs']
     .filter(f => fs.existsSync(path.join(projectRoot, f)));
   
   const foundFiles = [...rootFiles, ...allFiles.filter(f => f.startsWith('src/'))];

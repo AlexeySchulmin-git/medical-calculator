@@ -7,7 +7,7 @@ const signupLimit = 20;
 let editingClientId = null;
 
 // Базовый URL для API запросов
-const API_BASE = window.location.hostname === 'localhost' ? 'http://localhost:3003' : 'https://medical-calculator.onrender.com';
+const API_BASE = window.location.port === '3003' ? '' : 'http://localhost:3003';
 
 // Авторизация
 async function login() {

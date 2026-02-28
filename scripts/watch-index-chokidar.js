@@ -80,6 +80,7 @@ function scheduleRun(filepath) {
 // Настройка watcher
 const watcher = chokidar.watch([
   'src/**/*.{js,jsx,ts,tsx,cjs,mjs}',
+  'public/**/*.{js,css,html}',
   'medical-api-server.cjs',
   'widget-build*.js',
   'package.json'
@@ -94,7 +95,7 @@ watcher
   .on('ready', () => {
     log('🚀 Index watcher запущен (Ctrl+C для остановки)');
     log(`⏱  Debounce: ${DEBOUNCE_MS}ms`);
-    log('📂 Слежу за src/, medical-api-server.cjs, widget-build*.js, package.json');
+    log('📂 Слежу за src/, public/, medical-api-server.cjs, widget-build*.js, package.json');
     
     // Первичный запуск при старте
     runIndexer();
