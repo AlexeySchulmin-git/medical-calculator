@@ -1221,7 +1221,7 @@ class MedicalCalculator extends HTMLElement {
         @media (min-width: 769px) {
           :host(.mode-drawer_only) .calculator,
           :host(.mode-hybrid.drawer-form-active) .calculator {
-            padding-bottom: 220px;
+            padding-bottom: 130px;
           }
 
           :host(.mode-drawer_only) #calculatorForm,
