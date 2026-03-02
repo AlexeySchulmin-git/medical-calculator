@@ -18,7 +18,8 @@
     </div>
     <form onsubmit="login(); return false;">
       <div class="fg"><label>API Key</label><input type="password" id="apiKeyInput" placeholder="Введите API ключ" autocomplete="current-password" /></div>
-      <button type="submit" class="btn btn-p btn-full">Войти</button>
+      <button type="submit" id="loginBtn" class="btn btn-p btn-full">Войти</button>
+      <div id="loginProgress" class="login-progress" aria-live="polite" style="display:none">Проверяем ключ...</div>
     </form>
     <div id="loginErr">Неверный API ключ</div>
   </div>
@@ -1459,11 +1460,24 @@ function saveWidgetDisplayMode() {
 
 function login() {
   const key = document.getElementById('apiKeyInput').value.trim();
+  const btn = document.getElementById('loginBtn');
+  const progress = document.getElementById('loginProgress');
+  const err = document.getElementById('loginErr');
   if (!key) return;
+  err.style.display = 'none';
+  btn.disabled = true;
+  btn.classList.add('is-loading');
+  progress.style.display = 'block';
+
   fetch(`${API}/api/orders?limit=1`, {headers:{'x-api-key':key}})
     .then(r => { if(r.status===401) throw new Error(); return r.json(); })
     .then(() => showApp(key))
-    .catch(() => { document.getElementById('loginErr').style.display = 'block'; });
+    .catch(() => { err.style.display = 'block'; })
+    .finally(() => {
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+      progress.style.display = 'none';
+    });
 }
 document.getElementById('apiKeyInput').addEventListener('keydown', e => { if(e.key==='Enter') login(); });
 

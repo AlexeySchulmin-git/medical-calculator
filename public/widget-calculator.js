@@ -1221,7 +1221,7 @@ class MedicalCalculator extends HTMLElement {
         @media (min-width: 769px) {
           :host(.mode-drawer_only) .calculator,
           :host(.mode-hybrid.drawer-form-active) .calculator {
-            padding-bottom: 220px;
+            padding-bottom: 130px;
           }
 
           :host(.mode-drawer_only) #calculatorForm,
@@ -2058,7 +2058,7 @@ class MedicalCalculator extends HTMLElement {
         this._lastDistanceData = savedPrice.distanceData || {};
         setTimeout(() => this.showResult(savedPrice.price, savedPrice.distanceData || {}), 100);
       }
-    } catch (_) {}
+    } catch {}
   }
 
   attachEventListeners() {
@@ -2314,14 +2314,13 @@ class MedicalCalculator extends HTMLElement {
   }
 
   applyWidgetDisplayMode() {
-    const host = this;
     const mode = ['page_only', 'drawer_only', 'hybrid'].includes(this.widgetDisplayMode)
       ? this.widgetDisplayMode
       : 'hybrid';
     this.widgetDisplayMode = mode;
 
-    host.classList.remove('mode-page_only', 'mode-drawer_only', 'mode-hybrid');
-    host.classList.add(`mode-${mode}`);
+    this.classList.remove('mode-page_only', 'mode-drawer_only', 'mode-hybrid');
+    this.classList.add(`mode-${mode}`);
 
     const overlay = this.shadowRoot.getElementById('drawerOverlay');
     const drawer = this.shadowRoot.getElementById('launcherDrawer');
@@ -2331,7 +2330,7 @@ class MedicalCalculator extends HTMLElement {
       drawer.classList.remove('open');
       drawer.setAttribute('aria-hidden', 'true');
     }
-    host.classList.remove('drawer-form-active');
+    this.classList.remove('drawer-form-active');
     if (pageCalculator) pageCalculator.classList.remove('open');
   }
 
@@ -3340,7 +3339,7 @@ class MedicalCalculator extends HTMLElement {
     this.calculatedPrice = null;
     this._lastPrice = null;
     this._lastDistanceData = null;
-    try { localStorage.removeItem('medcalc_price'); } catch (_) {}
+    try { localStorage.removeItem('medcalc_price'); } catch {}
     const resultCard = this.shadowRoot.getElementById('resultCard');
     if (resultCard) resultCard.classList.add('hidden');
     const resultOptions = this.shadowRoot.getElementById('resultOptions');
@@ -3362,7 +3361,7 @@ class MedicalCalculator extends HTMLElement {
       this._loyaltyPercent = this.pricing.bonus.percent || 5;
       this._loyaltyPhone   = phone;
       this.renderLoyaltyBlock();
-    } catch (_) {
+    } catch {
       this.hideLoyaltyBlock();
     }
   }
@@ -3419,7 +3418,7 @@ class MedicalCalculator extends HTMLElement {
     this._lastDistanceData = distanceData;
     try {
       localStorage.setItem('medcalc_price', JSON.stringify({ price, distanceData: distanceData || {} }));
-    } catch (_) {}
+    } catch {}
 
     const resultCard = this.shadowRoot.getElementById('resultCard');
     const resultPrice = this.shadowRoot.getElementById('resultPrice');
@@ -3524,10 +3523,10 @@ class MedicalCalculator extends HTMLElement {
     this.calculatedPrice = null;
     this._lastPrice = null;
     this._lastDistanceData = null;
-    try { localStorage.removeItem('medcalc_price'); } catch (_) {}
+    localStorage.removeItem('medcalc_price');
     this.hideLoyaltyBlock();
     // Очищаем сохранённое состояние формы — иначе restoreFormState восстановит поля
-    try { localStorage.removeItem('medcalc_form'); } catch (_) {}
+    localStorage.removeItem('medcalc_form');
   }
 
   async submitOrder() {
@@ -3544,8 +3543,6 @@ class MedicalCalculator extends HTMLElement {
     const medEscort = this.shadowRoot.getElementById('medEscort');
     const roundTrip = this.shadowRoot.getElementById('roundTrip');
     const personalData = this.shadowRoot.getElementById('personalData');
-    const tripDate = this.shadowRoot.getElementById('tripDate');
-
     submitBtn.disabled = true;
     submitBtn.innerHTML = '<span class="loading"></span> Отправка...';
 
