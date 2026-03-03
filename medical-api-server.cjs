@@ -2929,13 +2929,28 @@ app.get('/api/integrations', async (req, res) => {
       } catch {}
     }
 
-    // Email сервисного аккаунта Google
+    // Email сервисного аккаунта Google (берём из файла или из ENV)
     let sheets_service_email = null;
-    if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE) {
+    const keyFile = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE;
+    const keyJsonEnv = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+
+    const parseKeyJson = (raw) => {
       try {
-        const keyData = JSON.parse(fs.readFileSync(process.env.GOOGLE_SERVICE_ACCOUNT_KEY_FILE, 'utf8'));
-        sheets_service_email = keyData.client_email || null;
+        const txt = raw.trim().startsWith('{') ? raw : Buffer.from(raw, 'base64').toString('utf8');
+        const keyData = JSON.parse(txt);
+        return keyData.client_email || null;
+      } catch {
+        return null;
+      }
+    };
+
+    if (keyFile) {
+      try {
+        sheets_service_email = parseKeyJson(fs.readFileSync(keyFile, 'utf8'));
       } catch {}
+    }
+    if (!sheets_service_email && keyJsonEnv) {
+      sheets_service_email = parseKeyJson(keyJsonEnv);
     }
 
     res.json({
