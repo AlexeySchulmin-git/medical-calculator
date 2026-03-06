@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3003;
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3003', 'https://medical-calculator.pages.dev'],
+  origin: ['http://localhost:3000', 'http://localhost:3003', 'https://medical-calculator.pages.dev', 'https://medical-calculator.vercel.app'],
   credentials: true
 }));
 app.use(express.json());
