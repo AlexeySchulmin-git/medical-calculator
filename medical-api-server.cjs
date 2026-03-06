@@ -17,7 +17,6 @@ app.use(cors({
     'http://localhost:3000',
     'http://localhost:3003',
     'https://medical-calculator.pages.dev',
-    'https://medical-calculator.vercel.app',
     'https://medical-calculator-phi.vercel.app'
   ],
   credentials: true
